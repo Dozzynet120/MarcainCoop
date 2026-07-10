@@ -1,0 +1,63 @@
+// ============================================
+// CHANGES TO MAKE IN YOUR MembershipFormPage.js
+// ============================================
+
+// 1. ADD THESE IMPORTS at the top of MembershipFormPage.js:
+import { submitMembership } from '../services/api';
+
+// 2. ADD THIS STATE inside MembershipFormPage:
+const [isSubmitting, setIsSubmitting] = useState(false);
+const [submitError, setSubmitError] = useState('');
+
+// 3. REPLACE your entire handleSubmit function with this:
+const handleSubmit = async () => {
+  if (!validateStep(4)) return;
+
+  setIsSubmitting(true);
+  setSubmitError('');
+
+  try {
+    const result = await submitMembership(formData, canvasRef.current);
+
+    if (result.success) {
+      setRefCode(result.ref);
+      setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      setSubmitError(result.error || 'Submission failed. Please try again.');
+    }
+  } catch (err) {
+    setSubmitError(err.message || 'Network error. Please check your connection and try again.');
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
+// 4. ADD ERROR DISPLAY in Step 4 (before the form-actions div):
+// In the Step 4 JSX, add this inside the form-body:
+/*
+{submitError && (
+  <div style={{
+    background: '#f8d7da',
+    color: '#721c24',
+    padding: '0.75rem',
+    borderRadius: '6px',
+    marginBottom: '1rem',
+    fontSize: '0.85rem'
+  }}>
+    <strong>Submission Error:</strong> {submitError}
+  </div>
+)}
+*/
+
+// 5. UPDATE the Submit button in Step 4:
+// Change from:
+// <button className="btn btn-success" onClick={handleSubmit}>
+// To:
+// <button className="btn btn-success" onClick={handleSubmit} disabled={isSubmitting}>
+//   {isSubmitting ? 'Submitting...' : 'Submit Application'}
+// </button>
+
+// 6. ADD to the success screen (after submitted state):
+// Show the reference code from the backend response
+// Your existing setRefCode(result.ref) already handles this

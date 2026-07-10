@@ -1,0 +1,48 @@
+// ============================================
+// CHANGES TO MAKE IN YOUR App.js
+// ============================================
+
+// 1. ADD THESE IMPORTS at the top:
+import LoginPage from './components/LoginPage';
+// Note: PortalPage should be imported from the new file instead of inline
+
+// 2. UPDATE THE renderPage SWITCH to include 'login':
+const renderPage = () => {
+  switch (currentPage) {
+    case 'home': return <HomePage setPage={setPage} />;
+    case 'about': return <AboutPage setPage={setPage} />;
+    case 'who-we-are': return <WhoWeArePage />;
+    case 'management': return <ManagementPage />;
+    case 'constitution': return <ConstitutionPage />;
+    case 'services': return <ServicesPage setPage={setPage} />;
+    case 'savings': return <SavingsPage setPage={setPage} />;
+    case 'loans': return <LoansPage setPage={setPage} />;
+    case 'investment': return <InvestmentPage setPage={setPage} />;
+    case 'welfare': return <WelfarePage setPage={setPage} />;
+    case 'other-services': return <OtherServicesPage setPage={setPage} />;
+    case 'membership': return <MembershipFormPage setPage={setPage} />;
+    case 'gallery': return <GalleryPage />;
+    case 'contact': return <ContactPage />;
+    case 'portal': return <PortalPage setPage={setPage} />;
+    case 'login': return <LoginPage setPage={setPage} />;  // <-- ADD THIS
+    default: return <HomePage setPage={setPage} />;
+  }
+};
+
+// 3. UPDATE NAVBAR "Portal" link to redirect to login if not authenticated:
+// In your Navbar component, change the Portal button to:
+/*
+<button 
+  onClick={() => {
+    const token = localStorage.getItem('marcain_token');
+    setPage(token ? 'portal' : 'login');
+  }}
+  className={`nav-link ${currentPage === 'portal' || currentPage === 'login' ? 'active' : ''}`}
+>
+  Portal
+</button>
+*/
+
+// 4. INSTALL SOCKET.IO CLIENT in your React project:
+// cd C:\Users\HP\marcain-cooperative
+// npm install socket.io-client
