@@ -1,5 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import './App.css';
+
+// ==================== API CONFIGURATION ====================
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+// Helper: get auth token from localStorage
+const getToken = () => localStorage.getItem('marcain_token');
+
+// Helper: API fetch wrapper
+async function apiFetch(url, options = {}) {
+   const token = getToken();
+   const headers = { ...(options.headers || {}) };
+   if (token && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${token}`;
+   }
+   if (options.body && !(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+   }
+   const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+   return res.json();
+}
+
+// Submit membership application with files
+async function submitMembership(formData, signatureCanvas) {
+   const data = new FormData();
+   Object.keys(formData).forEach(key => {
+      if (key !== 'passportFile' && key !== 'govtIdFile') {
+         data.append(key, formData[key]);
+      }
+   });
+   if (formData.passportFile) data.append('passportFile', formData.passportFile);
+   if (formData.govtIdFile) data.append('govtIdFile', formData.govtIdFile);
+   if (signatureCanvas) {
+      const signatureDataUrl = signatureCanvas.toDataURL('image/png');
+      data.append('signatureDataUrl', signatureDataUrl);
+   }
+   const res = await fetch(`${API_BASE}/membership/apply`, {
+      method: 'POST',
+      body: data
+   });
+   return res.json();
+}
+
+// Admin: get all applications
+async function getApplications(params = {}) {
+   const query = new URLSearchParams(params).toString();
+   return apiFetch(`/membership/applications?${query}`);
+}
+
+// Admin: get dashboard stats
+async function getStats() {
+   return apiFetch('/membership/applications/stats');
+}
+
+// Admin: update application status
+async function updateStatus(id, status, note = '') {
+   return apiFetch(`/membership/applications/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, note })
+   });
+}
+
+// Auth: login
+async function loginUser(email, password) {
+   const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+   });
+   return res.json();
+}
+
+// Auth: get current user
+async function getMe() {
+   return apiFetch('/auth/me');
+}
 
 const colors = {
    primary: '#1a0a3e',
@@ -17,9 +93,9 @@ const colors = {
    info: '#17a2b8'
 };
 
-const heroImages = ['/images/hero10.png', '/images/hero6.png', '/images/hero11.png'];
+const heroImages = ['/images/5.png', '/images/4.png', '/images/6.png'];
 const aboutSliderImages = ['/images/about2.png', '/images/about4.png', '/images/about1.png'];
-const whoWeAreSliderImages = ['/images/hero10.png', '/images/hero6.png', '/images/about1.png'];
+const whoWeAreSliderImages = ['/images/5.png', '/images/4.png', '/images/about1.png'];
 const savingsImage = '/images/savings.png';
 const loansImage = '/images/loans.png';
 const investmentImage = '/images/investment.png';
@@ -171,12 +247,19 @@ function ImageSlider({ images, autoPlay = true, interval = 5000, height = '400px
    );
 }
 
+
 // ==================== NAVBAR ====================
 function Navbar({ currentPage, setPage }) {
    const [aboutOpen, setAboutOpen] = useState(false);
    const [servicesOpen, setServicesOpen] = useState(false);
+   const [mobileOpen, setMobileOpen] = useState(false);
+   const [mobileAboutOpen, setMobileAboutOpen] = useState(false);
+   const [mobileServicesOpen, setMobileServicesOpen] = useState(false);
    const aboutRef = useRef(null);
    const servicesRef = useRef(null);
+   const mobileMenuRef = useRef(null);
+   const hamburgerRef = useRef(null);
+
    useEffect(() => {
       function handleClickOutside(e) {
          if (aboutRef.current && !aboutRef.current.contains(e.target)) setAboutOpen(false);
@@ -185,6 +268,33 @@ function Navbar({ currentPage, setPage }) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
    }, []);
+
+   useEffect(() => {
+      function handleResize() {
+         if (window.innerWidth > 768) {
+            setMobileOpen(false);
+            setMobileAboutOpen(false);
+            setMobileServicesOpen(false);
+         }
+      }
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+   }, []);
+
+   useEffect(() => {
+      function handleClickOutsideMobile(e) {
+         if (mobileOpen &&
+            mobileMenuRef.current && !mobileMenuRef.current.contains(e.target) &&
+            hamburgerRef.current && !hamburgerRef.current.contains(e.target)) {
+            setMobileOpen(false);
+            setMobileAboutOpen(false);
+            setMobileServicesOpen(false);
+         }
+      }
+      document.addEventListener('mousedown', handleClickOutsideMobile);
+      return () => document.removeEventListener('mousedown', handleClickOutsideMobile);
+   }, [mobileOpen]);
+
    const navLinks = [
       { label: 'Home', page: 'home' },
       {
@@ -206,22 +316,34 @@ function Navbar({ currentPage, setPage }) {
       { label: 'Membership', page: 'membership' },
       { label: 'Gallery', page: 'gallery' },
       { label: 'Contact', page: 'contact' },
-      { label: 'Portal', page: 'portal' }
+      { label: 'Portal', page: 'portal' },
+      { label: 'Attendance', page: 'attendance' }
    ];
+
+   const handleNavClick = (page) => {
+      setPage(page);
+      setMobileOpen(false);
+      setMobileAboutOpen(false);
+      setMobileServicesOpen(false);
+      setAboutOpen(false);
+      setServicesOpen(false);
+   };
+
    return (
       <nav className="navbar">
          <div className="nav-container">
-            <div className="logo" onClick={() => setPage('home')}>
+            <div className="logo" onClick={() => handleNavClick('home')}>
                <img src="/Marcainlogo.png" alt="MARCAIN Cooperative" className="logo-img" />
             </div>
-            <div className="nav-links">
+
+            <div className="nav-links desktop-only">
                {navLinks.map((link) => (
                   <div key={link.page}
                      ref={link.label === 'About' ? aboutRef : link.label === 'Services' ? servicesRef : null}
                      className="nav-item"
                      onMouseEnter={() => { if (link.label === 'About') setAboutOpen(true); if (link.label === 'Services') setServicesOpen(true); }}
                      onMouseLeave={() => { if (link.label === 'About') setAboutOpen(false); if (link.label === 'Services') setServicesOpen(false); }}>
-                     <button onClick={() => { setPage(link.page); setAboutOpen(false); setServicesOpen(false); }}
+                     <button onClick={() => handleNavClick(link.page)}
                         className={`nav-link ${currentPage === link.page ? 'active' : ''}`}>
                         {link.label}
                         {link.dropdown && (
@@ -233,7 +355,7 @@ function Navbar({ currentPage, setPage }) {
                      {link.dropdown && (
                         <div className={`dropdown ${(link.label === 'About' ? aboutOpen : servicesOpen) ? 'open' : ''}`}>
                            {link.dropdown.map((item) => (
-                              <button key={item.page} onClick={() => { setPage(item.page); setAboutOpen(false); setServicesOpen(false); }}
+                              <button key={item.page} onClick={() => handleNavClick(item.page)}
                                  className="dropdown-item">{item.label}</button>
                            ))}
                         </div>
@@ -241,11 +363,78 @@ function Navbar({ currentPage, setPage }) {
                   </div>
                ))}
             </div>
-            <button className="join-btn" onClick={() => setPage('membership')}>Join Us</button>
+
+            <div className="nav-actions">
+               <button className="join-btn desktop-only" onClick={() => handleNavClick('membership')}>Join Us</button>
+               <button
+                  ref={hamburgerRef}
+                  className={`hamburger ${mobileOpen ? 'active' : ''}`}
+                  onClick={() => setMobileOpen(!mobileOpen)}
+                  aria-label="Toggle menu"
+                  aria-expanded={mobileOpen}
+               >
+                  <span></span>
+                  <span></span>
+                  <span></span>
+               </button>
+            </div>
          </div>
+
+         <div ref={mobileMenuRef} className={`mobile-menu ${mobileOpen ? 'open' : ''}`}>
+            <div className="mobile-menu-header">
+               <span className="mobile-menu-title">Menu</span>
+               <button className="mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                     <line x1="18" y1="6" x2="6" y2="18"></line>
+                     <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+               </button>
+            </div>
+            <div className="mobile-menu-links">
+               {navLinks.map((link) => (
+                  <div key={link.page} className="mobile-nav-item">
+                     {link.dropdown ? (
+                        <>
+                           <button
+                              className={`mobile-nav-link ${currentPage === link.page ? 'active' : ''}`}
+                              onClick={() => {
+                                 if (link.label === 'About') setMobileAboutOpen(!mobileAboutOpen);
+                                 if (link.label === 'Services') setMobileServicesOpen(!mobileServicesOpen);
+                              }}
+                           >
+                              {link.label}
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                                 style={{ transform: (link.label === 'About' ? mobileAboutOpen : mobileServicesOpen) ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                                 <polyline points="6 9 12 15 18 9"></polyline>
+                              </svg>
+                           </button>
+                           <div className={`mobile-dropdown ${(link.label === 'About' ? mobileAboutOpen : mobileServicesOpen) ? 'open' : ''}`}>
+                              {link.dropdown.map((item) => (
+                                 <button key={item.page} onClick={() => handleNavClick(item.page)}
+                                    className={`mobile-dropdown-item ${currentPage === item.page ? 'active' : ''}`}>
+                                    {item.label}
+                                 </button>
+                              ))}
+                           </div>
+                        </>
+                     ) : (
+                        <button onClick={() => handleNavClick(link.page)}
+                           className={`mobile-nav-link ${currentPage === link.page ? 'active' : ''}`}>
+                           {link.label}
+                        </button>
+                     )}
+                  </div>
+               ))}
+            </div>
+            <div className="mobile-menu-footer">
+               <button className="mobile-join-btn" onClick={() => handleNavClick('membership')}>Join Us</button>
+            </div>
+         </div>
+         {mobileOpen && <div className="mobile-overlay" onClick={() => setMobileOpen(false)}></div>}
       </nav>
    );
 }
+
 
 // ==================== HOME PAGE ====================
 function HomePage({ setPage }) {
@@ -258,7 +447,7 @@ function HomePage({ setPage }) {
    useEffect(() => {
       const timer = setInterval(() => { setCurrentSlide(prev => (prev + 1) % slides.length); }, 5000);
       return () => clearInterval(timer);
-   }, []);
+   }, [slides.length]);
    const whyJoinItems = [
       { num: '1', title: 'Financial Security:', desc: 'Save, invest, and access credit in a secure and transparent system.' },
       { num: '2', title: 'Family Protection:', desc: 'Benefit from matrimonial rights advocacy and welfare support.' },
@@ -303,7 +492,7 @@ function HomePage({ setPage }) {
                      ))}
                   </div>
                </div>
-               <div className="why-join-image"><img src="/images/why.png" alt="MARCAIN Community" className="why-join-img" /></div>
+               <div className="why-join-image"><img src="/images/why1.png" alt="MARCAIN Community" className="why-join-img" /></div>
             </div>
          </section>
          <section className="mission-vision-section">
@@ -672,7 +861,8 @@ function OtherServicesPage({ setPage }) {
    );
 }
 
-// ==================== NEW MEMBERSHIP FORM (INTEGRATED FROM HTML) ====================
+
+// ==================== MEMBERSHIP FORM (WITH BACKEND INTEGRATION) ====================
 function MembershipFormPage({ setPage }) {
    const [currentStep, setCurrentStep] = useState(1);
    const [errors, setErrors] = useState({});
@@ -680,6 +870,8 @@ function MembershipFormPage({ setPage }) {
    const [refCode, setRefCode] = useState('');
    const [dragOver, setDragOver] = useState({ passport: false, govtId: false });
    const [previewUrls, setPreviewUrls] = useState({ passport: null, govtId: null });
+   const [isSubmitting, setIsSubmitting] = useState(false);
+   const [submitError, setSubmitError] = useState('');
 
    const [formData, setFormData] = useState({
       surname: '', firstName: '', otherName: '', dob: '', gender: '', maritalStatus: '',
@@ -761,16 +953,27 @@ function MembershipFormPage({ setPage }) {
       if (step < currentStep) setCurrentStep(step);
    };
 
-   const handleSubmit = () => {
-      if (validateStep(4)) {
-         const ref = 'MRCN-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000);
-         setRefCode(ref);
-         setSubmitted(true);
-         window.scrollTo({ top: 0, behavior: 'smooth' });
+   const handleSubmit = async () => {
+      if (!validateStep(4)) return;
+      setIsSubmitting(true);
+      setSubmitError('');
+
+      try {
+         const result = await submitMembership(formData, canvasRef.current);
+         if (result.success) {
+            setRefCode(result.ref);
+            setSubmitted(true);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+         } else {
+            setSubmitError(result.error || 'Submission failed. Please try again.');
+         }
+      } catch (err) {
+         setSubmitError('Network error. Please check your connection and try again.');
+      } finally {
+         setIsSubmitting(false);
       }
    };
 
-   // ===== SIGNATURE PAD =====
    useEffect(() => {
       if (currentStep !== 4) return;
       const canvas = canvasRef.current;
@@ -835,7 +1038,6 @@ function MembershipFormPage({ setPage }) {
       setHasSigned(false);
    };
 
-   // ===== FILE HANDLING =====
    const handleFileSelect = (file, type) => {
       if (!file) return;
       setFormData(prev => ({ ...prev, [type + 'File']: file }));
@@ -874,6 +1076,7 @@ function MembershipFormPage({ setPage }) {
          if (previewUrls.passport) URL.revokeObjectURL(previewUrls.passport);
          if (previewUrls.govtId) URL.revokeObjectURL(previewUrls.govtId);
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, []);
 
    if (submitted) {
@@ -909,7 +1112,6 @@ function MembershipFormPage({ setPage }) {
 
    return (
       <div className="membership-form-page">
-         {/* Header */}
          <div className="membership-header">
             <div className="header-content">
                <div className="logo-container"><img src="/Marcainlogo.png" alt="MARCAIN Cooperative Logo" /></div>
@@ -919,7 +1121,6 @@ function MembershipFormPage({ setPage }) {
             </div>
          </div>
 
-         {/* Progress Bar */}
          <div className="progress-container">
             <div className="progress-bar">
                <div className="progress-line">
@@ -935,7 +1136,6 @@ function MembershipFormPage({ setPage }) {
             </div>
          </div>
 
-         {/* Form */}
          <div className="form-container">
             <div className="form-card">
                {/* STEP 1: Personal Information */}
@@ -1058,9 +1258,9 @@ function MembershipFormPage({ setPage }) {
                               <input type="checkbox" checked={formData.agreeConstitution} onChange={() => { }} />
                               <span>I have read and agree to abide by the Constitution and Bye-Laws</span>
                            </label>
-                           <a href="#" className="constitution-link" onClick={e => { e.preventDefault(); alert('Constitution document would open here'); }}>
+                           <button type="button" className="constitution-link" onClick={() => alert('Constitution document would open here')} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline', padding: 0, font: 'inherit' }}>
                               <i className="fas fa-external-link-alt"></i> Click to read Constitution
-                           </a>
+                           </button>
                            <span className="error-message"><i className="fas fa-exclamation-circle"></i> {errors.agreeConstitution}</span>
                         </div>
                         <div className={`form-group ${errors.nominatorName ? 'error' : ''}`}>
@@ -1205,9 +1405,16 @@ function MembershipFormPage({ setPage }) {
                         </div>
                      </div>
                   </div>
+                  {submitError && (
+                     <div style={{ padding: '1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem', textAlign: 'center' }}>
+                        <i className="fas fa-exclamation-triangle"></i> {submitError}
+                     </div>
+                  )}
                   <div className="form-actions">
                      <button className="btn btn-secondary" onClick={prevStep}><i className="fas fa-arrow-left"></i> Back</button>
-                     <button className="btn btn-success" onClick={handleSubmit}><i className="fas fa-check-circle"></i> Submit Application</button>
+                     <button className="btn btn-success" onClick={handleSubmit} disabled={isSubmitting}>
+                        {isSubmitting ? <><i className="fas fa-spinner fa-spin"></i> Submitting...</> : <><i className="fas fa-check-circle"></i> Submit Application</>}
+                     </button>
                   </div>
                </div>
             </div>
@@ -1215,6 +1422,7 @@ function MembershipFormPage({ setPage }) {
       </div>
    );
 }
+
 
 // ==================== GALLERY ====================
 function GalleryPage() {
@@ -1281,124 +1489,442 @@ function ContactPage() {
    );
 }
 
-// ==================== PORTAL / DASHBOARDS ====================
+// ==================== PORTAL / ADMIN DASHBOARD ====================
 function PortalPage() {
    const [role, setRole] = useState('');
    const [loggedIn, setLoggedIn] = useState(false);
    const [activeTab, setActiveTab] = useState('applications');
-
-   const [applications] = useState([
-      { id: 1, name: 'John Adeyemi', phone: '08031234567', email: 'john@email.com', date: '2026-07-01', nominator: 'Dr. Emmanuel', status: 'Under Staff Verification' },
-      { id: 2, name: 'Mary Okafor', phone: '08039876543', email: 'mary@email.com', date: '2026-07-02', nominator: 'Mrs. Grace', status: 'Verified by Staff' },
-      { id: 3, name: 'Peter Nwosu', phone: '08035678901', email: 'peter@email.com', date: '2026-07-03', nominator: 'Mr. James', status: 'Reviewed by Secretary' },
-      { id: 4, name: 'Amina Bello', phone: '08033456789', email: 'amina@email.com', date: '2026-07-04', nominator: 'Mrs. Amina', status: 'Awaiting Chairman Approval' },
-      { id: 5, name: 'Chidinma Eze', phone: '08037890123', email: 'chidinma@email.com', date: '2026-07-05', nominator: 'Mr. Peter', status: 'Submitted' }
-   ]);
-
-   const [members] = useState([
-      { id: 'MRC-2026-001', name: 'Dr. Emmanuel Adeyemi', phone: '08031234567', email: 'emmanuel@email.com', area: 'Lagos', nominator: 'N/A', submitted: '2026-01-15', approved: '2026-02-01', approvedBy: 'Chairman', status: 'Active' },
-      { id: 'MRC-2026-002', name: 'Mrs. Grace Okafor', phone: '08039876543', email: 'grace@email.com', area: 'Abuja', nominator: 'N/A', submitted: '2026-01-20', approved: '2026-02-05', approvedBy: 'Chairman', status: 'Active' },
-      { id: 'MRC-2026-003', name: 'Mr. James Nwosu', phone: '08035678901', email: 'james@email.com', area: 'Enugu', nominator: 'N/A', submitted: '2026-02-01', approved: '2026-02-15', approvedBy: 'Chairman', status: 'Active' }
-   ]);
+   const [user, setUser] = useState(null);
+   const [loginEmail, setLoginEmail] = useState('');
+   const [loginPassword, setLoginPassword] = useState('');
+   const [selectedRole, setSelectedRole] = useState('');
+   const [loginError, setLoginError] = useState('');
+   const [loginLoading, setLoginLoading] = useState(false);
+   const [applications, setApplications] = useState([]);
+   const [members] = useState([]);
+   const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0 });
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState('');
+   const [searchTerm, setSearchTerm] = useState('');
+   const [statusFilter, setStatusFilter] = useState('');
+   const [reviewingApp, setReviewingApp] = useState(null);
+   const [statusNote, setStatusNote] = useState('');
+   const [updatingStatus, setUpdatingStatus] = useState(false);
+   const [socket, setSocket] = useState(null);
 
    const statusColors = {
-      'Submitted': colors.warning, 'Under Staff Verification': colors.info, 'Verified by Staff': colors.info,
-      'Reviewed by Secretary': colors.info, 'Awaiting Chairman Approval': colors.accent,
-      'Approved': colors.success, 'Declined': colors.danger, 'Active': colors.success,
-      'Suspended': colors.warning, 'Withdrawn': colors.textLight, 'Terminated': colors.danger
+      'Submitted': '#d69e2e',
+      'Under Staff Verification': '#3182ce',
+      'Verified by Staff': '#805ad5',
+      'Reviewed by Secretary': '#38a169',
+      'Awaiting Chairman Approval': '#dd6b20',
+      'Approved': '#38a169',
+      'Declined': '#e53e3e'
+   };
+
+   const statusLabels = {
+      'Submitted': 'Submitted',
+      'Under Staff Verification': 'Staff Verification',
+      'Verified by Staff': 'Verified',
+      'Reviewed by Secretary': 'Secretary Review',
+      'Awaiting Chairman Approval': 'Chairman Approval',
+      'Approved': 'Approved',
+      'Declined': 'Declined'
+   };
+
+   const roleConfig = {
+      'Admin': { title: 'System Administrator', emailHint: 'admin@marcaincoop.com', color: '#2c5282', icon: '🔧', description: 'Full access to all applications and system settings' },
+      'Secretary': { title: 'Cooperative Secretary', emailHint: 'secretary@marcaincoop.com', color: '#805ad5', icon: '📝', description: 'Review verified applications and forward to Chairman' },
+      'Chairman': { title: 'Cooperative Chairman', emailHint: 'chairman@marcaincoop.com', color: '#d4a843', icon: '👑', description: 'Final approval authority for all membership applications' },
+      'Cooperative Staff': { title: 'Cooperative Staff', emailHint: 'staff@marcaincoop.com', color: '#3182ce', icon: '👤', description: 'Initial verification of submitted applications' }
+   };
+
+   useEffect(() => {
+      const token = localStorage.getItem('marcain_token');
+      if (token) {
+         getMe().then(result => {
+            if (result.success) {
+               setUser(result.data);
+               setRole(result.data.role);
+               setLoggedIn(true);
+            } else {
+               localStorage.removeItem('marcain_token');
+            }
+         });
+      }
+   }, []);
+
+   useEffect(() => {
+      if (!loggedIn) return;
+      fetchApplications();
+      fetchStats();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [loggedIn, activeTab]);
+
+   useEffect(() => {
+      if (!loggedIn) return;
+      const newSocket = io('http://localhost:5000');
+      const token = localStorage.getItem('marcain_token');
+      newSocket.emit('join-admin', { token });
+      newSocket.on('new-application', (data) => { fetchApplications(); fetchStats(); });
+      newSocket.on('status-update', (data) => { fetchApplications(); fetchStats(); });
+      setSocket(newSocket);
+      return () => newSocket.close();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [loggedIn]);
+
+   const fetchApplications = async () => {
+      setLoading(true); setError('');
+      try {
+         const params = {};
+         if (statusFilter) params.status = statusFilter;
+         if (searchTerm) params.search = searchTerm;
+         const result = await getApplications(params);
+         if (result.success) { setApplications(result.data || []); }
+         else { setError(result.error || 'Failed to load applications'); }
+      } catch (err) { setError('Network error. Please check your connection.'); }
+      finally { setLoading(false); }
+   };
+
+   const fetchStats = async () => {
+      try { const result = await getStats(); if (result.success) setStats(result.data); }
+      catch (err) { console.error('Stats error:', err); }
+   };
+
+   const handleLogin = async (e) => {
+      e.preventDefault(); setLoginError(''); setLoginLoading(true);
+      try {
+         const result = await loginUser(loginEmail, loginPassword);
+         if (result.success) {
+            if (selectedRole && result.data.role !== selectedRole) {
+               setLoginError(`This account is registered as "${result.data.role}", not "${selectedRole}". Please select the correct role.`);
+               setLoginLoading(false); return;
+            }
+            localStorage.setItem('marcain_token', result.token);
+            setUser(result.data); setRole(result.data.role); setLoggedIn(true);
+         } else { setLoginError(result.error || 'Login failed. Please check your credentials.'); }
+      } catch (err) { setLoginError('Network error. Please check your connection and try again.'); }
+      finally { setLoginLoading(false); }
+   };
+
+   const handleLogout = () => {
+      localStorage.removeItem('marcain_token');
+      if (socket) socket.close();
+      setLoggedIn(false); setRole(''); setUser(null); setApplications([]);
+      setActiveTab('applications'); setLoginEmail(''); setLoginPassword(''); setSelectedRole('');
+   };
+
+   const handleStatusUpdate = async (appId, newStatus) => {
+      setUpdatingStatus(true);
+      try {
+         const result = await updateStatus(appId, newStatus, statusNote);
+         if (result.success) { setReviewingApp(null); setStatusNote(''); fetchApplications(); fetchStats(); }
+         else { setError(result.error || 'Failed to update status'); }
+      } catch (err) { setError('Network error during status update'); }
+      finally { setUpdatingStatus(false); }
+   };
+
+   const getNextStatuses = (currentStatus) => {
+      const flows = {
+         'Cooperative Staff': { 'Submitted': ['Under Staff Verification', 'Declined'], 'Under Staff Verification': ['Verified by Staff', 'Declined'] },
+         'Secretary': { 'Verified by Staff': ['Reviewed by Secretary', 'Declined'] },
+         'Chairman': { 'Awaiting Chairman Approval': ['Approved', 'Declined'] },
+         'Admin': { 'Submitted': ['Under Staff Verification', 'Declined'], 'Under Staff Verification': ['Verified by Staff', 'Declined'], 'Verified by Staff': ['Reviewed by Secretary', 'Declined'], 'Reviewed by Secretary': ['Awaiting Chairman Approval', 'Declined'], 'Awaiting Chairman Approval': ['Approved', 'Declined'] }
+      };
+      return flows[role]?.[currentStatus] || [];
+   };
+
+   const getDashboardTitle = () => {
+      switch (role) {
+         case 'Cooperative Staff': return 'Staff Verification Dashboard';
+         case 'Secretary': return 'Secretary Review Dashboard';
+         case 'Chairman': return 'Chairman Final Approval Dashboard';
+         case 'Admin': return 'Admin Dashboard - All Applications';
+         default: return 'Applications';
+      }
+   };
+
+   const getFilteredApplications = () => {
+      if (role === 'Admin') return applications;
+      const roleStatuses = { 'Cooperative Staff': ['Submitted', 'Under Staff Verification'], 'Secretary': ['Verified by Staff'], 'Chairman': ['Awaiting Chairman Approval'] };
+      const allowed = roleStatuses[role] || [];
+      return applications.filter(app => allowed.includes(app.status));
    };
 
    if (!loggedIn) {
       return (
-         <div className="portal-login">
-            <div className="login-card">
-               <div className="login-logo">
-                  <img src="/logo.png" alt="MARCAIN Portal" className="portal-login-logo-img" />
-                  <h2>MARCAIN Portal</h2>
+         <div className="portal-login" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #1a0a3e 0%, #2d1b5e 100%)', padding: '2rem' }}>
+            <div style={{ maxWidth: '500px', width: '100%', background: 'white', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+               <div style={{ background: '#1a0a3e', padding: '2rem', textAlign: 'center', color: 'white' }}>
+                  <img src="/Marcainlogo.png" alt="MARCAIN" style={{ height: '60px', marginBottom: '1rem' }} />
+                  <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem' }}>MARCAIN Portal</h2>
+                  <p style={{ margin: 0, opacity: 0.8, fontSize: '0.9rem' }}>Select your role to login</p>
                </div>
-               <p className="login-subtitle">Select your role to access the portal</p>
-               <div className="role-selector">
-                  {['Applicant', 'Cooperative Staff', 'Secretary', 'Chairman', 'Admin'].map(r => (
-                     <button key={r} onClick={() => { setRole(r); setLoggedIn(true); }} className={`role-btn ${role === r ? 'active' : ''}`}>{r}</button>
-                  ))}
+               <div style={{ padding: '2rem' }}>
+                  {!selectedRole ? (
+                     <div>
+                        <p style={{ textAlign: 'center', color: '#4a5568', marginBottom: '1.5rem', fontWeight: '600' }}>Choose your access level:</p>
+                        <div style={{ display: 'grid', gap: '1rem' }}>
+                           {Object.entries(roleConfig).map(([roleKey, config]) => (
+                              <button key={roleKey} onClick={() => setSelectedRole(roleKey)}
+                                 style={{ display: 'flex', alignItems: 'center', padding: '1.25rem', borderRadius: '12px', border: `2px solid ${config.color}30`, background: `${config.color}08`, cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left', width: '100%' }}
+                                 onMouseOver={e => { e.currentTarget.style.borderColor = config.color; e.currentTarget.style.background = `${config.color}15`; e.currentTarget.style.transform = 'translateX(5px)'; }}
+                                 onMouseOut={e => { e.currentTarget.style.borderColor = `${config.color}30`; e.currentTarget.style.background = `${config.color}08`; e.currentTarget.style.transform = 'translateX(0)'; }}>
+                                 <span style={{ fontSize: '2rem', marginRight: '1rem' }}>{config.icon}</span>
+                                 <div>
+                                    <div style={{ fontWeight: '700', color: config.color, fontSize: '1.1rem' }}>{config.title}</div>
+                                    <div style={{ fontSize: '0.85rem', color: '#718096', marginTop: '0.25rem' }}>{config.description}</div>
+                                 </div>
+                                 <span style={{ marginLeft: 'auto', fontSize: '1.5rem', color: config.color }}>→</span>
+                              </button>
+                           ))}
+                        </div>
+                     </div>
+                  ) : (
+                     <div>
+                        <button onClick={() => { setSelectedRole(''); setLoginError(''); }}
+                           style={{ background: 'none', border: 'none', color: '#718096', cursor: 'pointer', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>← Back to roles</button>
+                        <div style={{ background: `${roleConfig[selectedRole].color}15`, border: `2px solid ${roleConfig[selectedRole].color}30`, borderRadius: '12px', padding: '1.5rem', textAlign: 'center', marginBottom: '1.5rem' }}>
+                           <span style={{ fontSize: '3rem' }}>{roleConfig[selectedRole].icon}</span>
+                           <h3 style={{ margin: '0.5rem 0 0.25rem 0', color: roleConfig[selectedRole].color }}>{roleConfig[selectedRole].title}</h3>
+                           <p style={{ margin: 0, fontSize: '0.85rem', color: '#718096' }}>{roleConfig[selectedRole].description}</p>
+                        </div>
+                        <form onSubmit={handleLogin}>
+                           {loginError && (
+                              <div style={{ padding: '1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>⚠️ {loginError}</div>
+                           )}
+                           <div style={{ marginBottom: '1rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', color: '#4a5568', fontSize: '0.9rem' }}>Email Address</label>
+                              <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder={roleConfig[selectedRole].emailHint} required
+                                 style={{ width: '100%', padding: '0.875rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontSize: '1rem', transition: 'border-color 0.2s' }}
+                                 onFocus={e => e.target.style.borderColor = roleConfig[selectedRole].color} onBlur={e => e.target.style.borderColor = '#e2e8f0'} />
+                              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#a0aec0' }}>Default: {roleConfig[selectedRole].emailHint}</p>
+                           </div>
+                           <div style={{ marginBottom: '1.5rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', color: '#4a5568', fontSize: '0.9rem' }}>Password</label>
+                              <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="Enter your password" required
+                                 style={{ width: '100%', padding: '0.875rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontSize: '1rem', transition: 'border-color 0.2s' }}
+                                 onFocus={e => e.target.style.borderColor = roleConfig[selectedRole].color} onBlur={e => e.target.style.borderColor = '#e2e8f0'} />
+                              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#a0aec0' }}>Default password: {selectedRole === 'Admin' ? 'Admin@2026' : selectedRole === 'Secretary' ? 'Secretary@2026' : selectedRole === 'Chairman' ? 'Chairman@2026' : 'Staff@2026'}</p>
+                           </div>
+                           <button type="submit" disabled={loginLoading}
+                              style={{ width: '100%', padding: '1rem', borderRadius: '8px', border: 'none', background: roleConfig[selectedRole].color, color: 'white', fontWeight: '700', fontSize: '1rem', cursor: loginLoading ? 'not-allowed' : 'pointer', opacity: loginLoading ? 0.7 : 1, transition: 'transform 0.2s, box-shadow 0.2s' }}
+                              onMouseOver={e => { if (!loginLoading) { e.target.style.transform = 'translateY(-2px)'; e.target.style.boxShadow = '0 10px 20px rgba(0,0,0,0.2)'; } }}
+                              onMouseOut={e => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = 'none'; }}>
+                              {loginLoading ? <span>⏳ Logging in...</span> : <span>🔐 Login as {roleConfig[selectedRole].title}</span>}
+                           </button>
+                        </form>
+                     </div>
+                  )}
+               </div>
+               <div style={{ padding: '1rem 2rem', background: '#f7fafc', textAlign: 'center', borderTop: '1px solid #e2e8f0' }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#718096' }}>MARCAIN Cooperative Society © 2026</p>
                </div>
             </div>
          </div>
       );
    }
 
+   const filteredApps = getFilteredApplications();
+
    return (
       <div className="portal-dashboard">
          <div className="portal-sidebar">
             <div className="portal-brand">
-               <img src="/logo.png" alt="MARCAIN Portal" className="portal-sidebar-logo-img" />
+               <img src="/Marcainlogo.png" alt="MARCAIN Portal" className="portal-sidebar-logo-img" />
                <span>MARCAIN Portal</span>
             </div>
-            <div className="portal-role">{role}</div>
+            <div style={{ padding: '0.75rem 1rem', background: `${roleConfig[role]?.color || '#2c5282'}20`, borderLeft: `4px solid ${roleConfig[role]?.color || '#2c5282'}`, margin: '0.5rem 1rem', borderRadius: '0 8px 8px 0' }}>
+               <div style={{ fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase', fontWeight: '600' }}>Logged in as</div>
+               <div style={{ fontWeight: '700', color: roleConfig[role]?.color || '#2c5282', fontSize: '0.9rem' }}>{roleConfig[role]?.title || role}</div>
+               <div style={{ fontSize: '0.8rem', color: '#a0aec0', marginTop: '0.25rem' }}>{user?.name}</div>
+            </div>
             <nav className="portal-nav">
                <button onClick={() => setActiveTab('applications')} className={activeTab === 'applications' ? 'active' : ''}>📋 Applications</button>
                {role !== 'Applicant' && (<button onClick={() => setActiveTab('members')} className={activeTab === 'members' ? 'active' : ''}>👥 Members Register</button>)}
                <button onClick={() => setActiveTab('profile')} className={activeTab === 'profile' ? 'active' : ''}>👤 Profile</button>
-               <button onClick={() => { setLoggedIn(false); setRole(''); }} className="logout-btn">🚪 Logout</button>
+               <button onClick={handleLogout} className="logout-btn">🚪 Logout</button>
             </nav>
          </div>
          <div className="portal-content">
+            {error && (<div style={{ padding: '0.75rem', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', marginBottom: '1rem' }}>{error}</div>)}
             {activeTab === 'applications' && (
                <div>
-                  <h2 className="portal-title">{role === 'Applicant' ? 'My Application' : role === 'Cooperative Staff' ? 'Staff Verification Dashboard' : role === 'Secretary' ? 'Secretary Membership Review Dashboard' : role === 'Chairman' ? 'Chairman Final Approval Dashboard' : 'All Applications'}</h2>
-                  <div className="stats-bar">
-                     <div className="stat-box"><div className="stat-value">{applications.length}</div><div className="stat-name">Total Applications</div></div>
-                     <div className="stat-box"><div className="stat-value">{applications.filter(a => a.status === 'Submitted').length}</div><div className="stat-name">Pending</div></div>
-                     <div className="stat-box"><div className="stat-value">{applications.filter(a => a.status === 'Awaiting Chairman Approval').length}</div><div className="stat-name">For Approval</div></div>
-                     <div className="stat-box"><div className="stat-value">{members.length}</div><div className="stat-name">Approved Members</div></div>
+                  <h2 className="portal-title">{getDashboardTitle()}</h2>
+                  <div className="stats-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                     <div className="stat-box" style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#2c5282' }}>{stats.totalApplications || 0}</div><div style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>Total Applications</div>
+                     </div>
+                     <div className="stat-box" style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#d69e2e' }}>{stats.pending || 0}</div><div style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>Pending</div>
+                     </div>
+                     <div className="stat-box" style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#dd6b20' }}>{stats.forApproval || 0}</div><div style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>For Approval</div>
+                     </div>
+                     <div className="stat-box" style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#38a169' }}>{stats.approved || 0}</div><div style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>Approved</div>
+                     </div>
+                     <div className="stat-box" style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#e53e3e' }}>{stats.declined || 0}</div><div style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>Declined</div>
+                     </div>
                   </div>
-                  <div className="table-card">
-                     <table className="data-table">
-                        <thead><tr><th>Applicant Name</th><th>Phone</th><th>Email</th><th>Date Submitted</th><th>Nominator</th><th>Status</th><th>Action</th></tr></thead>
-                        <tbody>
-                           {applications.map(app => (
-                              <tr key={app.id}>
-                                 <td><strong>{app.name}</strong></td><td>{app.phone}</td><td>{app.email}</td><td>{app.date}</td><td>{app.nominator}</td>
-                                 <td><span className="status-badge" style={{ background: statusColors[app.status] + '20', color: statusColors[app.status] }}>{app.status}</span></td>
-                                 <td><button className="action-btn">Review</button></td>
-                              </tr>
-                           ))}
-                        </tbody>
-                     </table>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                     <input type="text" placeholder="Search by name, ref, or phone..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} onKeyPress={e => e.key === 'Enter' && fetchApplications()}
+                        style={{ flex: 1, minWidth: '200px', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e0e0e0', fontSize: '0.95rem' }} />
+                     <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                        style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid #e0e0e0', fontSize: '0.95rem', minWidth: '150px' }}>
+                        <option value="">All Statuses</option><option value="Submitted">Submitted</option><option value="Under Staff Verification">Under Staff Verification</option><option value="Verified by Staff">Verified by Staff</option><option value="Reviewed by Secretary">Reviewed by Secretary</option><option value="Awaiting Chairman Approval">Awaiting Chairman Approval</option><option value="Approved">Approved</option><option value="Declined">Declined</option>
+                     </select>
+                     <button onClick={fetchApplications} className="btn btn-primary" style={{ padding: '0.75rem 1.5rem' }}>🔍 Search</button>
+                  </div>
+                  <div className="table-card" style={{ background: '#fff', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                     {loading ? (<div style={{ textAlign: 'center', padding: '3rem' }}><p>Loading applications...</p></div>) : (
+                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                           <thead><tr style={{ background: '#f7fafc', borderBottom: '2px solid #e2e8f0' }}>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Ref</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Applicant</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Phone</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>State/LGA</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Submitted</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Status</th>
+                              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568', textTransform: 'uppercase' }}>Action</th>
+                           </tr></thead>
+                           <tbody>
+                              {filteredApps.length === 0 ? (
+                                 <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: '#718096' }}>
+                                    <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📋</div><p>No applications found at your review stage.</p><p style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>Applications will appear here when they reach your approval level.</p>
+                                 </td></tr>
+                              ) : (filteredApps.map(app => (
+                                 <tr key={app._id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                    <td style={{ padding: '1rem', fontWeight: '600', color: '#2c5282', fontSize: '0.9rem' }}>{app.applicationRef}</td>
+                                    <td style={{ padding: '1rem' }}><div style={{ fontWeight: '600', color: '#2d3748' }}>{app.surname} {app.firstName}</div><div style={{ fontSize: '0.85rem', color: '#718096' }}>{app.email}</div></td>
+                                    <td style={{ padding: '1rem', fontSize: '0.9rem', color: '#4a5568' }}>{app.phone}</td>
+                                    <td style={{ padding: '1rem', fontSize: '0.9rem', color: '#4a5568' }}>{app.state}<br /><span style={{ fontSize: '0.8rem', color: '#718096' }}>{app.lga}</span></td>
+                                    <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#718096' }}>{new Date(app.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                    <td style={{ padding: '1rem' }}><span style={{ display: 'inline-block', padding: '0.35rem 0.75rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '600', background: (statusColors[app.status] || '#666') + '20', color: statusColors[app.status] || '#666' }}>{statusLabels[app.status] || app.status}</span></td>
+                                    <td style={{ padding: '1rem' }}><button onClick={() => setReviewingApp(app)} className="btn btn-primary" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>Review</button></td>
+                                 </tr>
+                              )))}
+                           </tbody>
+                        </table>
+                     )}
+                  </div>
+               </div>
+            )}
+            {reviewingApp && (
+               <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+                  <div style={{ background: 'white', borderRadius: '16px', padding: '2rem', maxWidth: '700px', width: '90%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '2px solid #f7fafc', paddingBottom: '1rem' }}>
+                        <div><h3 style={{ margin: 0, color: '#2d3748', fontSize: '1.25rem' }}>Review Application</h3><p style={{ margin: '0.25rem 0 0 0', color: '#718096', fontSize: '0.85rem' }}>{reviewingApp.applicationRef}</p></div>
+                        <button onClick={() => { setReviewingApp(null); setStatusNote(''); }} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#718096', padding: '0.5rem', borderRadius: '50%' }}>✕</button>
+                     </div>
+                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Full Name</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{reviewingApp.surname} {reviewingApp.firstName} {reviewingApp.otherName}</p></div>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Email</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{reviewingApp.email}</p></div>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Phone</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{reviewingApp.phone}</p></div>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>State / LGA</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{reviewingApp.state} / {reviewingApp.lga}</p></div>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Occupation</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{reviewingApp.occupation} ({reviewingApp.employmentType})</p></div>
+                        <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '8px' }}><p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Date of Birth</p><p style={{ margin: 0, fontWeight: '600', color: '#2d3748' }}>{new Date(reviewingApp.dob).toLocaleDateString('en-GB')}</p></div>
+                     </div>
+                     <div style={{ background: '#fffaf0', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', borderLeft: '4px solid #d69e2e' }}>
+                        <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.75rem', color: '#d69e2e', textTransform: 'uppercase', fontWeight: '600' }}>Nominator</p>
+                        <p style={{ margin: 0, color: '#2d3748' }}><strong>{reviewingApp.nominatorName}</strong> — {reviewingApp.nominatorPhone}</p>
+                     </div>
+                     {reviewingApp.passportPhotoUrl && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                           <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Passport Photo</p>
+                           <img src={`http://localhost:5000${reviewingApp.passportPhotoUrl}`} alt="Passport" style={{ maxWidth: '120px', borderRadius: '8px', border: '2px solid #e2e8f0' }} />
+                        </div>
+                     )}
+                     <div style={{ background: (statusColors[reviewingApp.status] || '#666') + '15', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', border: `2px solid ${statusColors[reviewingApp.status] || '#666'}40` }}>
+                        <p style={{ margin: '0 0 0.25rem 0', fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Current Status</p>
+                        <p style={{ margin: 0, fontWeight: '700', fontSize: '1.1rem', color: statusColors[reviewingApp.status] || '#666' }}>{reviewingApp.status}</p>
+                     </div>
+                     {reviewingApp.statusHistory && reviewingApp.statusHistory.length > 0 && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                           <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Status History</p>
+                           <div style={{ maxHeight: '150px', overflow: 'auto' }}>
+                              {reviewingApp.statusHistory.map((h, i) => (
+                                 <div key={i} style={{ padding: '0.5rem', marginBottom: '0.25rem', background: '#f7fafc', borderRadius: '6px', fontSize: '0.85rem' }}>
+                                    <span style={{ fontWeight: '600', color: '#2c5282' }}>{h.status}</span>
+                                    <span style={{ color: '#718096', marginLeft: '0.5rem' }}>by {h.updatedBy}</span>
+                                    <span style={{ color: '#a0aec0', marginLeft: '0.5rem', fontSize: '0.75rem' }}>{new Date(h.updatedAt).toLocaleDateString('en-GB')}</span>
+                                    {h.note && <p style={{ margin: '0.25rem 0 0 0', color: '#718096', fontStyle: 'italic' }}>Note: {h.note}</p>}
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     )}
+                     {getNextStatuses(reviewingApp.status).length > 0 && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                           <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Update Status:</p>
+                           <textarea placeholder="Add a note or reason for this decision (required for Decline)..." value={statusNote} onChange={e => setStatusNote(e.target.value)}
+                              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem', fontSize: '0.9rem', minHeight: '80px', resize: 'vertical' }} />
+                           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              {getNextStatuses(reviewingApp.status).map(s => (
+                                 <button key={s} onClick={() => { if (s === 'Declined' && !statusNote.trim()) { alert('Please provide a reason for declining this application.'); return; } handleStatusUpdate(reviewingApp._id, s); }} disabled={updatingStatus}
+                                    style={{ padding: '0.75rem 1.5rem', borderRadius: '8px', border: 'none', fontWeight: '600', fontSize: '0.9rem', cursor: updatingStatus ? 'not-allowed' : 'pointer', opacity: updatingStatus ? 0.6 : 1, background: s === 'Declined' ? '#e53e3e' : s === 'Approved' ? '#38a169' : '#2c5282', color: 'white' }}>
+                                    {updatingStatus ? '⏳ Processing...' : s === 'Declined' ? '❌ Decline' : s === 'Approved' ? '✅ Approve' : `➡️ ${s}`}
+                                 </button>
+                              ))}
+                           </div>
+                           {getNextStatuses(reviewingApp.status).includes('Declined') && (<p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8rem', color: '#e53e3e' }}>⚠️ A reason is required when declining an application.</p>)}
+                        </div>
+                     )}
+                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button onClick={() => { setReviewingApp(null); setStatusNote(''); }} style={{ padding: '0.75rem 1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', color: '#4a5568', fontWeight: '600', cursor: 'pointer' }}>Close</button>
+                     </div>
                   </div>
                </div>
             )}
             {activeTab === 'members' && role !== 'Applicant' && (
                <div>
                   <h2 className="portal-title">MARCAIN Cooperative Members Register</h2>
-                  <div className="search-bar"><input type="text" placeholder="Search by name, ID, or phone..." className="search-input" /><button className="search-btn">Search</button></div>
-                  <div className="table-card">
-                     <table className="data-table">
-                        <thead><tr><th>Membership ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Residential Area</th><th>Nominator</th><th>Date Approved</th><th>Approved By</th><th>Status</th></tr></thead>
+                  <div style={{ marginBottom: '1.5rem' }}>
+                     <input type="text" placeholder="Search by name, ID, or phone..." className="search-input" style={{ padding: '0.75rem', borderRadius: '8px', border: '1px solid #e0e0e0', width: '300px' }} />
+                     <button className="search-btn" style={{ padding: '0.75rem 1.5rem', marginLeft: '0.5rem' }}>Search</button>
+                  </div>
+                  <div className="table-card" style={{ background: '#fff', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                     <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead><tr style={{ background: '#f7fafc', borderBottom: '2px solid #e2e8f0' }}>
+                           <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Membership ID</th>
+                           <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Name</th>
+                           <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Phone</th>
+                           <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Email</th>
+                           <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '600', color: '#4a5568' }}>Status</th>
+                        </tr></thead>
                         <tbody>
-                           {members.map(m => (
-                              <tr key={m.id}>
-                                 <td><strong>{m.id}</strong></td><td>{m.name}</td><td>{m.phone}</td><td>{m.email}</td><td>{m.area}</td><td>{m.nominator}</td>
-                                 <td>{m.approved}</td><td>{m.approvedBy}</td>
-                                 <td><span className="status-badge" style={{ background: statusColors[m.status] + '20', color: statusColors[m.status] }}>{m.status}</span></td>
+                           {members.length === 0 ? (
+                              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '3rem', color: '#718096' }}>
+                                 <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>👥</div><p>No members registered yet.</p><p style={{ fontSize: '0.9rem' }}>Approved applications will appear here.</p>
+                              </td></tr>
+                           ) : (members.map(m => (
+                              <tr key={m.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                 <td style={{ padding: '1rem', fontWeight: '600', color: '#2c5282' }}>{m.id}</td>
+                                 <td style={{ padding: '1rem' }}>{m.name}</td>
+                                 <td style={{ padding: '1rem' }}>{m.phone}</td>
+                                 <td style={{ padding: '1rem' }}>{m.email}</td>
+                                 <td style={{ padding: '1rem' }}><span style={{ padding: '0.35rem 0.75rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '600', background: (statusColors[m.status] || '#666') + '20', color: statusColors[m.status] || '#666' }}>{m.status}</span></td>
                               </tr>
-                           ))}
+                           )))}
                         </tbody>
                      </table>
                   </div>
                </div>
             )}
             {activeTab === 'profile' && (
-               <div className="profile-card">
+               <div style={{ background: '#fff', borderRadius: '10px', padding: '2rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                   <h2 className="portal-title">My Profile</h2>
-                  <div className="profile-avatar">{role === 'Applicant' ? 'JA' : role[0]}</div>
-                  <h3>{role === 'Applicant' ? 'John Adeyemi' : role}</h3>
-                  <p className="profile-role">{role}</p>
-                  <div className="profile-details">
-                     <div className="profile-row"><span>Email:</span><span>{role === 'Applicant' ? 'john@email.com' : 'portal@marcaincoop.com'}</span></div>
-                     <div className="profile-row"><span>Phone:</span><span>{role === 'Applicant' ? '08031234567' : '08030000000'}</span></div>
-                     <div className="profile-row"><span>Member Since:</span><span>2026</span></div>
-                     <div className="profile-row"><span>Last Login:</span><span>{new Date().toLocaleString()}</span></div>
+                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: roleConfig[role]?.color || '#2c5282', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>
+                     {user?.name?.split(' ').map(n => n[0]).join('') || role[0]}
+                  </div>
+                  <h3 style={{ margin: '0 0 0.25rem 0', color: '#2d3748' }}>{user?.name || role}</h3>
+                  <p style={{ color: roleConfig[role]?.color || '#2c5282', fontWeight: '600', marginBottom: '1.5rem' }}>{roleConfig[role]?.title || role}</p>
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0', borderBottom: '1px solid #f7fafc' }}><span style={{ color: '#718096' }}>Email</span><span style={{ fontWeight: '600', color: '#2d3748' }}>{user?.email || 'N/A'}</span></div>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0', borderBottom: '1px solid #f7fafc' }}><span style={{ color: '#718096' }}>Role</span><span style={{ fontWeight: '600', color: '#2d3748' }}>{user?.role || role}</span></div>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0', borderBottom: '1px solid #f7fafc' }}><span style={{ color: '#718096' }}>Member Since</span><span style={{ fontWeight: '600', color: '#2d3748' }}>2026</span></div>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0' }}><span style={{ color: '#718096' }}>Last Login</span><span style={{ fontWeight: '600', color: '#2d3748' }}>{new Date().toLocaleString()}</span></div>
                   </div>
                </div>
             )}
@@ -1406,6 +1932,884 @@ function PortalPage() {
       </div>
    );
 }
+
+
+// ==================== ATTENDANCE PORTAL (NEW) ====================
+function AttendancePortal() {
+   const [currentPage, setCurrentPage] = useState('dashboard');
+   const [currentMeetingId, setCurrentMeetingId] = useState(null);
+   const [tempAttendance, setTempAttendance] = useState({});
+   const [searchMember, setSearchMember] = useState('');
+   const [filterStatus, setFilterStatus] = useState('all');
+   const [modalOpen, setModalOpen] = useState(false);
+   const [modalTitle, setModalTitle] = useState('');
+   const [modalBody, setModalBody] = useState(null);
+   const [toastMessages, setToastMessages] = useState([]);
+   const [returnReason, setReturnReason] = useState('');
+   const [showReturnModal, setShowReturnModal] = useState(false);
+   const [returnMeetingId, setReturnMeetingId] = useState(null);
+   const [sidebarOpen, setSidebarOpen] = useState(false);
+   const [chairmanTab, setChairmanTab] = useState('pending');
+   const [penaltyTab, setPenaltyTab] = useState('pending');
+   const [membersSearch, setMembersSearch] = useState('');
+
+   // Demo data store
+   const [store, setStore] = useState({
+      currentUser: { name: 'John Doe', role: 'Chairman', initials: 'JD' },
+      members: [
+         { id: 'MC001', name: 'James Wilson', phone: '+234 801 234 5678', status: 'Active Member', photo: null, joinDate: '2020-03-15' },
+         { id: 'MC002', name: 'Sarah Johnson', phone: '+234 802 345 6789', status: 'Active Member', photo: null, joinDate: '2020-05-20' },
+         { id: 'MC003', name: 'Michael Brown', phone: '+234 803 456 7890', status: 'Active Member', photo: null, joinDate: '2020-07-10' },
+         { id: 'MC004', name: 'Emily Davis', phone: '+234 804 567 8901', status: 'Active Member', photo: null, joinDate: '2021-01-12' },
+         { id: 'MC005', name: 'Robert Taylor', phone: '+234 805 678 9012', status: 'Active Member', photo: null, joinDate: '2021-03-25' },
+         { id: 'MC006', name: 'Lisa Anderson', phone: '+234 806 789 0123', status: 'Active Member', photo: null, joinDate: '2021-06-18' },
+         { id: 'MC007', name: 'David Thomas', phone: '+234 807 890 1234', status: 'Suspended', photo: null, joinDate: '2020-09-05' },
+         { id: 'MC008', name: 'Jennifer Martinez', phone: '+234 808 901 2345', status: 'Withdrawn', photo: null, joinDate: '2020-11-30' },
+         { id: 'MC009', name: 'William Garcia', phone: '+234 809 012 3456', status: 'Terminated', photo: null, joinDate: '2021-02-14' },
+         { id: 'MC010', name: 'Patricia Lee', phone: '+234 810 123 4567', status: 'Pending Applicant', photo: null, joinDate: '2023-01-10' },
+         { id: 'MC011', name: 'Charles Robinson', phone: '+234 811 234 5678', status: 'Active Member', photo: null, joinDate: '2021-08-22' },
+         { id: 'MC012', name: 'Margaret Clark', phone: '+234 812 345 6789', status: 'Active Member', photo: null, joinDate: '2021-10-05' },
+         { id: 'MC013', name: 'Joseph Rodriguez', phone: '+234 813 456 7890', status: 'Active Member', photo: null, joinDate: '2022-01-15' },
+         { id: 'MC014', name: 'Susan Lewis', phone: '+234 814 567 8901', status: 'Active Member', photo: null, joinDate: '2022-03-20' },
+         { id: 'MC015', name: 'Thomas Walker', phone: '+234 815 678 9012', status: 'Deceased', photo: null, joinDate: '2020-04-10' }
+      ],
+      meetings: [
+         { id: 'M001', title: 'Monthly General Meeting - June 2026', type: 'Monthly General Meeting', date: '2026-06-28', time: '10:00 AM', venue: 'Marcain Cooperative Hall, Main Branch', mode: 'Physical', createdBy: 'Jane Smith', status: 'Attendance Being Taken', attendance: {}, submitted: false, approved: false, returned: false },
+         { id: 'M002', title: 'Emergency Meeting - Budget Review', type: 'Emergency Meeting', date: '2026-06-15', time: '2:00 PM', venue: 'Online - Zoom', mode: 'Online', createdBy: 'John Doe', status: 'Approved Official Attendance Record', attendance: { 'MC001': 'Present', 'MC002': 'Present', 'MC003': 'Absent', 'MC004': 'Late', 'MC005': 'Present', 'MC006': 'Excused' }, submitted: true, approved: true, approvedBy: 'John Doe', approvedDate: '2026-06-15', returned: false },
+         { id: 'M003', title: 'Annual General Meeting 2026', type: 'Annual General Meeting', date: '2026-05-20', time: '9:00 AM', venue: 'City Conference Center', mode: 'Hybrid', createdBy: 'Jane Smith', status: 'Approved Official Attendance Record', attendance: { 'MC001': 'Present', 'MC002': 'Present', 'MC003': 'Present', 'MC004': 'Present', 'MC005': 'Late', 'MC006': 'Present', 'MC011': 'Present', 'MC012': 'Absent', 'MC013': 'Present', 'MC014': 'Excused' }, submitted: true, approved: true, approvedBy: 'John Doe', approvedDate: '2026-05-20', returned: false },
+         { id: 'M004', title: 'Committee Meeting - Finance', type: 'Committee Meeting', date: '2026-06-10', time: '11:00 AM', venue: 'Finance Office', mode: 'Physical', createdBy: 'Jane Smith', status: 'Returned for Correction', attendance: { 'MC001': 'Present', 'MC002': 'Present', 'MC003': 'Present' }, submitted: true, approved: false, returned: true, returnReason: 'Missing arrival times for 2 members' }
+      ],
+      auditTrail: [
+         { action: 'Meeting Created', user: 'Jane Smith', time: '2026-06-25 09:15', detail: 'Created "Monthly General Meeting - June 2026"', type: 'create' },
+         { action: 'Attendance Marked', user: 'Jane Smith', time: '2026-06-28 10:05', detail: 'Marked James Wilson (MC001) as Present', type: 'mark' },
+         { action: 'Attendance Marked', user: 'Jane Smith', time: '2026-06-28 10:07', detail: 'Marked Sarah Johnson (MC002) as Present', type: 'mark' },
+         { action: 'Attendance Submitted', user: 'Jane Smith', time: '2026-06-15 14:30', detail: 'Submitted attendance for Emergency Meeting to Chairman', type: 'submit' },
+         { action: 'Attendance Approved', user: 'John Doe', time: '2026-06-15 15:00', detail: 'Approved Emergency Meeting attendance record', type: 'approve' },
+         { action: 'Attendance Returned', user: 'John Doe', time: '2026-06-10 12:00', detail: 'Returned Committee Meeting attendance for correction: Missing arrival times', type: 'correct' },
+         { action: 'Attendance Approved', user: 'John Doe', time: '2026-05-20 11:30', detail: 'Approved Annual General Meeting 2026 attendance', type: 'approve' }
+      ],
+      notifications: [
+         { title: 'Attendance Submitted for Review', message: 'Jane Smith submitted attendance for Monthly General Meeting - June 2026', time: '10 minutes ago', read: false, type: 'submit' },
+         { title: 'Meeting Reminder', message: 'Monthly General Meeting - June 2026 is scheduled for June 28, 2026 at 10:00 AM', time: '2 hours ago', read: false, type: 'reminder' },
+         { title: 'Attendance Approved', message: 'Your attendance for Emergency Meeting has been approved by Chairman', time: '1 day ago', read: false, type: 'approve' },
+         { title: 'Penalty Notice', message: 'You have been marked absent for 3 consecutive meetings. Penalty review pending.', time: '3 days ago', read: true, type: 'penalty' }
+      ],
+      penalties: [
+         { memberId: 'MC003', memberName: 'Michael Brown', type: 'Absent without excuse', meetings: 3, amount: 5000, status: 'Pending Confirmation', date: '2026-06-20' },
+         { memberId: 'MC012', memberName: 'Margaret Clark', type: 'Repeated absence', meetings: 5, amount: 10000, status: 'Confirmed', date: '2026-05-25' },
+         { memberId: 'MC005', memberName: 'Robert Taylor', type: 'Late arrival', meetings: 4, amount: 2000, status: 'Pending Confirmation', date: '2026-06-18' }
+      ]
+   });
+
+   const getActiveMembers = () => store.members.filter(m => m.status === 'Active Member');
+
+   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+   const showToast = (message, type = 'success') => {
+      const id = Date.now();
+      setToastMessages(prev => [...prev, { id, message, type }]);
+      setTimeout(() => setToastMessages(prev => prev.filter(t => t.id !== id)), 3000);
+   };
+
+   const getStatusBadge = (status) => {
+      const map = {
+         'Present': { class: 'att-badge-present', label: 'Present' },
+         'Absent': { class: 'att-badge-absent', label: 'Absent' },
+         'Late': { class: 'att-badge-late', label: 'Late' },
+         'Excused': { class: 'att-badge-excused', label: 'Excused' },
+         'Online Attendance': { class: 'att-badge-online', label: 'Online' },
+         'Active Member': { class: 'att-badge-active', label: 'Active' },
+         'Pending Applicant': { class: 'att-badge-pending', label: 'Pending' },
+         'Approved Official Attendance Record': { class: 'att-badge-approved', label: 'Approved' }
+      };
+      const badge = map[status] || { class: 'att-badge-status', label: status };
+      return <span className={`att-badge ${badge.class}`}>{badge.label}</span>;
+   };
+
+   const handleCreateMeeting = (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const newMeeting = {
+         id: 'M' + String(store.meetings.length + 1).padStart(3, '0'),
+         title: form.meetingTitle.value,
+         type: form.meetingType.value,
+         date: form.meetingDate.value,
+         time: form.meetingTime.value,
+         venue: form.meetingVenue.value,
+         mode: form.meetingMode.value,
+         createdBy: store.currentUser.name,
+         status: 'Attendance List Generated',
+         attendance: {},
+         submitted: false,
+         approved: false,
+         returned: false
+      };
+      setStore(prev => ({
+         ...prev,
+         meetings: [newMeeting, ...prev.meetings],
+         auditTrail: [{ action: 'Meeting Created', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Created "${newMeeting.title}"`, type: 'create' }, ...prev.auditTrail]
+      }));
+      showToast('Meeting created successfully! Attendance list generated from Active Members.', 'success');
+      setCurrentPage('dashboard');
+   };
+
+   const openAttendance = (meetingId) => {
+      const meeting = store.meetings.find(m => m.id === meetingId);
+      setCurrentMeetingId(meetingId);
+      setTempAttendance({ ...meeting.attendance });
+      setCurrentPage('attendance-detail');
+   };
+
+   const markAttendance = (memberId, status) => {
+      setTempAttendance(prev => ({ ...prev, [memberId]: status }));
+      setStore(prev => ({
+         ...prev,
+         auditTrail: [{ action: 'Attendance Marked', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Marked ${memberId} as ${status}`, type: 'mark' }, ...prev.auditTrail]
+      }));
+      showToast(`Attendance marked: ${status}`, 'success');
+   };
+
+   const saveAttendance = () => {
+      setStore(prev => ({
+         ...prev,
+         meetings: prev.meetings.map(m => m.id === currentMeetingId ? { ...m, attendance: { ...tempAttendance }, status: 'Attendance Saved' } : m)
+      }));
+      showToast('Attendance saved successfully!', 'success');
+   };
+
+   const submitAttendance = () => {
+      setStore(prev => ({
+         ...prev,
+         meetings: prev.meetings.map(m => m.id === currentMeetingId ? { ...m, attendance: { ...tempAttendance }, submitted: true, status: 'Attendance Submitted - Awaiting Chairman Approval' } : m),
+         auditTrail: [{ action: 'Attendance Submitted', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Submitted attendance for ${prev.meetings.find(me => me.id === currentMeetingId)?.title} to Chairman`, type: 'submit' }, ...prev.auditTrail]
+      }));
+      showToast('Attendance submitted to Chairman for approval!', 'success');
+      setCurrentPage('take-attendance');
+   };
+
+   const approveAttendance = (meetingId) => {
+      setStore(prev => ({
+         ...prev,
+         meetings: prev.meetings.map(m => m.id === meetingId ? { ...m, approved: true, approvedBy: store.currentUser.name, approvedDate: new Date().toISOString().slice(0, 10), status: 'Approved Official Attendance Record' } : m),
+         auditTrail: [{ action: 'Attendance Approved', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Approved ${prev.meetings.find(me => me.id === meetingId)?.title} attendance record`, type: 'approve' }, ...prev.auditTrail]
+      }));
+      showToast('Attendance approved successfully! Record is now locked.', 'success');
+   };
+
+   const returnAttendance = (meetingId) => {
+      setReturnMeetingId(meetingId);
+      setShowReturnModal(true);
+   };
+
+   const confirmReturn = () => {
+      if (!returnReason.trim()) { showToast('Please provide a reason for returning.', 'error'); return; }
+      setStore(prev => ({
+         ...prev,
+         meetings: prev.meetings.map(m => m.id === returnMeetingId ? { ...m, returned: true, returnReason, status: 'Returned for Correction', submitted: false } : m),
+         auditTrail: [{ action: 'Attendance Returned', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Returned ${prev.meetings.find(me => me.id === returnMeetingId)?.title} for correction: ${returnReason}`, type: 'correct' }, ...prev.auditTrail]
+      }));
+      showToast('Attendance returned for correction.', 'warning');
+      setShowReturnModal(false);
+      setReturnReason('');
+      setReturnMeetingId(null);
+   };
+
+   const rejectAttendance = (meetingId) => {
+      if (window.confirm('Are you sure you want to reject this attendance record? This action cannot be undone.')) {
+         setStore(prev => ({
+            ...prev,
+            meetings: prev.meetings.map(m => m.id === meetingId ? { ...m, status: 'Rejected' } : m),
+            auditTrail: [{ action: 'Attendance Rejected', user: store.currentUser.name, time: new Date().toISOString().slice(0, 16).replace('T', ' '), detail: `Rejected ${prev.meetings.find(me => me.id === meetingId)?.title} attendance record`, type: 'correct' }, ...prev.auditTrail]
+         }));
+         showToast('Attendance record rejected.', 'error');
+      }
+   };
+
+   const viewRegister = (meetingId) => {
+      const meeting = store.meetings.find(m => m.id === meetingId);
+      const activeMembers = getActiveMembers();
+      setModalTitle(`${meeting.title} - Official Register`);
+      setModalBody(
+         <div>
+            <div className="att-success-box">
+               <p><strong>Status:</strong> Approved Official Attendance Record<br />
+                  <strong>Approved By:</strong> {meeting.approvedBy} on {formatDate(meeting.approvedDate)}<br />
+                  <strong>Meeting:</strong> {meeting.type} | {formatDate(meeting.date)} | {meeting.time}</p>
+            </div>
+            <div className="att-table-container">
+               <table className="att-data-table">
+                  <thead><tr><th>Member ID</th><th>Member Name</th><th>Attendance Status</th><th>Arrival Time</th><th>Marked By</th></tr></thead>
+                  <tbody>
+                     {activeMembers.map(member => (
+                        <tr key={member.id}>
+                           <td>{member.id}</td>
+                           <td>{member.name}</td>
+                           <td>{getStatusBadge(meeting.attendance[member.id] || 'Not Recorded')}</td>
+                           <td>{meeting.attendance[member.id] ? new Date().toLocaleTimeString() : 'N/A'}</td>
+                           <td>Jane Smith</td>
+                        </tr>
+                     ))}
+                  </tbody>
+               </table>
+            </div>
+         </div>
+      );
+      setModalOpen(true);
+   };
+
+   const confirmPenalty = (memberId) => {
+      setStore(prev => ({ ...prev, penalties: prev.penalties.map(p => p.memberId === memberId && p.status === 'Pending Confirmation' ? { ...p, status: 'Confirmed' } : p) }));
+      const penalty = store.penalties.find(p => p.memberId === memberId);
+      showToast(`Penalty confirmed for ${penalty?.memberName}`, 'success');
+   };
+
+   const waivePenalty = (memberId) => {
+      setStore(prev => ({ ...prev, penalties: prev.penalties.map(p => p.memberId === memberId && p.status === 'Pending Confirmation' ? { ...p, status: 'Waived' } : p) }));
+      const penalty = store.penalties.find(p => p.memberId === memberId);
+      showToast(`Penalty waived for ${penalty?.memberName}`, 'info');
+   };
+
+   const navItems = [
+      {
+         section: 'Main', items: [
+            { page: 'dashboard', label: 'Dashboard', icon: '📊' },
+            { page: 'create-meeting', label: 'Create Meeting', icon: '➕' },
+            { page: 'take-attendance', label: 'Take Attendance', icon: '✅' },
+            { page: 'chairman-approval', label: 'Chairman Approval', icon: '👑' }
+         ]
+      },
+      {
+         section: 'Records', items: [
+            { page: 'attendance-register', label: 'Official Register', icon: '📋' },
+            { page: 'reports', label: 'Reports', icon: '📈' },
+            { page: 'penalties', label: 'Penalties', icon: '⚠️' }
+         ]
+      },
+      {
+         section: 'Administration', items: [
+            { page: 'audit-trail', label: 'Audit Trail', icon: '📜' },
+            { page: 'members', label: 'Members Database', icon: '👥' },
+            { page: 'notifications', label: 'Notifications', icon: '🔔' }
+         ]
+      }
+   ];
+
+   // ==================== RENDER PAGES ====================
+   const renderDashboard = () => {
+      const totalMembers = getActiveMembers().length;
+      const totalMeetings = store.meetings.length;
+      const pendingApproval = store.meetings.filter(m => m.submitted && !m.approved && !m.returned).length;
+      const approvedRecords = store.meetings.filter(m => m.approved).length;
+
+      return (
+         <div>
+            <div className="att-stats-grid">
+               <div className="att-stat-card"><div className="att-stat-icon att-blue">👥</div><div className="att-stat-info"><h4>{totalMembers}</h4><p>Active Members</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-green">📅</div><div className="att-stat-info"><h4>{totalMeetings}</h4><p>Total Meetings</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-orange">⏳</div><div className="att-stat-info"><h4>{pendingApproval}</h4><p>Pending Approval</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-green">✅</div><div className="att-stat-info"><h4>{approvedRecords}</h4><p>Approved Records</p></div></div>
+            </div>
+            <div className="att-card">
+               <div className="att-card-header"><h3>Recent Meetings</h3><button className="att-btn att-btn-primary att-btn-sm" onClick={() => setCurrentPage('create-meeting')}>+ Create Meeting</button></div>
+               <div className="att-card-body">
+                  <div className="att-table-container">
+                     <table className="att-data-table">
+                        <thead><tr><th>Meeting Title</th><th>Date</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                           {store.meetings.map(m => {
+                              let actionBtn = null;
+                              if (m.status === 'Attendance Being Taken') actionBtn = <button className="att-btn att-btn-primary att-btn-sm" onClick={() => openAttendance(m.id)}>Take Attendance</button>;
+                              else if (m.submitted && !m.approved && !m.returned) actionBtn = <button className="att-btn att-btn-warning att-btn-sm" onClick={() => { setCurrentPage('chairman-approval'); }}>Review</button>;
+                              else if (m.approved) actionBtn = <button className="att-btn att-btn-outline att-btn-sm" onClick={() => viewRegister(m.id)}>View Register</button>;
+                              return (
+                                 <tr key={m.id}>
+                                    <td><strong>{m.title}</strong><br /><small style={{ color: 'var(--att-gray-500)' }}>{m.venue}</small></td>
+                                    <td>{formatDate(m.date)}<br /><small>{m.time}</small></td>
+                                    <td>{getStatusBadge(m.type)}</td>
+                                    <td>{getStatusBadge(m.status)}</td>
+                                    <td>{actionBtn}</td>
+                                 </tr>
+                              );
+                           })}
+                        </tbody>
+                     </table>
+                  </div>
+               </div>
+            </div>
+            <div className="att-card" style={{ marginTop: '16px' }}>
+               <div className="att-card-header"><h3>Attendance Status Flow</h3></div>
+               <div className="att-card-body">
+                  <div className="att-status-flow">
+                     {['Meeting Created', 'List Generated', 'Taking Attendance', 'Saved', 'Submitted', 'Approved', 'Locked'].map((step, i) => (
+                        <div key={step} className={`att-flow-step ${i <= 2 ? 'att-completed' : ''} ${i === 2 ? 'att-active' : ''}`}>
+                           <div className="att-flow-step-icon">{i === 0 ? '📝' : i === 1 ? '📄' : i === 2 ? '✍️' : i === 3 ? '💾' : i === 4 ? '📤' : i === 5 ? '✅' : '🔒'}</div>
+                           <div className="att-flow-step-label">{step}</div>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            </div>
+         </div>
+      );
+   };
+
+   const renderCreateMeeting = () => (
+      <div className="att-card">
+         <div className="att-card-header"><h3>Create New Meeting Attendance</h3></div>
+         <div className="att-card-body">
+            <div className="att-info-box"><p><strong>Note:</strong> Only members with "Active Member" status will be automatically included in the attendance list. Suspended, Withdrawn, Terminated, Deceased, Pending Applicant, and Approved (non-active) members are excluded.</p></div>
+            <form onSubmit={handleCreateMeeting}>
+               <div className="att-form-grid">
+                  <div className="att-form-group"><label>Meeting Title <span className="att-required">*</span></label><input type="text" name="meetingTitle" className="att-form-control" placeholder="e.g., Monthly General Meeting - July 2026" required /></div>
+                  <div className="att-form-group"><label>Meeting Type <span className="att-required">*</span></label><select name="meetingType" className="att-form-control" required><option value="">Select Type</option><option>Monthly General Meeting</option><option>Annual General Meeting</option><option>Emergency Meeting</option><option>Committee Meeting</option></select></div>
+                  <div className="att-form-group"><label>Meeting Date <span className="att-required">*</span></label><input type="date" name="meetingDate" className="att-form-control" required /></div>
+                  <div className="att-form-group"><label>Meeting Time <span className="att-required">*</span></label><input type="time" name="meetingTime" className="att-form-control" required /></div>
+                  <div className="att-form-group"><label>Meeting Venue <span className="att-required">*</span></label><input type="text" name="meetingVenue" className="att-form-control" placeholder="e.g., Marcain Cooperative Hall" required /></div>
+                  <div className="att-form-group"><label>Meeting Mode <span className="att-required">*</span></label><select name="meetingMode" className="att-form-control" required><option value="">Select Mode</option><option>Physical</option><option>Online</option><option>Hybrid</option></select></div>
+                  <div className="att-form-group"><label>Created By</label><input type="text" className="att-form-control" value={store.currentUser.name} readOnly /></div>
+                  <div className="att-form-group" style={{ gridColumn: '1 / -1' }}><label>Remarks</label><textarea name="meetingRemarks" className="att-form-control" placeholder="Any additional notes..." rows="3"></textarea></div>
+               </div>
+               <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
+                  <button type="submit" className="att-btn att-btn-primary att-btn-lg">Generate Attendance List</button>
+                  <button type="button" className="att-btn att-btn-outline att-btn-lg" onClick={() => setCurrentPage('dashboard')}>Cancel</button>
+               </div>
+            </form>
+         </div>
+      </div>
+   );
+
+   const renderTakeAttendance = () => {
+      const activeMeetings = store.meetings.filter(m => m.status === 'Attendance Being Taken' || m.status === 'Attendance List Generated' || m.status === 'Returned for Correction');
+      if (activeMeetings.length === 0) {
+         return (
+            <div className="att-empty-state">
+               <div style={{ fontSize: '60px', marginBottom: '16px' }}>📝</div>
+               <h4>No Active Meetings</h4>
+               <p>There are no meetings currently open for attendance marking. Create a new meeting to get started.</p>
+               <button className="att-btn att-btn-primary" style={{ marginTop: '16px' }} onClick={() => setCurrentPage('create-meeting')}>Create Meeting</button>
+            </div>
+         );
+      }
+      return (
+         <div className="att-card">
+            <div className="att-card-header"><h3>Select Meeting to Take Attendance</h3></div>
+            <div className="att-card-body">
+               <div className="att-table-container">
+                  <table className="att-data-table">
+                     <thead><tr><th>Meeting</th><th>Date & Time</th><th>Venue</th><th>Status</th><th>Action</th></tr></thead>
+                     <tbody>
+                        {activeMeetings.map(m => (
+                           <tr key={m.id}>
+                              <td><strong>{m.title}</strong><br /><small>{m.type}</small></td>
+                              <td>{formatDate(m.date)}<br /><small>{m.time}</small></td>
+                              <td>{m.venue}<br /><small>{m.mode}</small></td>
+                              <td>{getStatusBadge(m.status)}</td>
+                              <td><button className="att-btn att-btn-primary att-btn-sm" onClick={() => openAttendance(m.id)}>Take Attendance</button></td>
+                           </tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+         </div>
+      );
+   };
+
+   const renderAttendanceDetail = () => {
+      const meeting = store.meetings.find(m => m.id === currentMeetingId);
+      if (!meeting) return null;
+      const activeMembers = getActiveMembers();
+      const presentCount = Object.values(tempAttendance).filter(v => v === 'Present' || v === 'Late' || v === 'Online Attendance').length;
+      const absentCount = Object.values(tempAttendance).filter(v => v === 'Absent').length;
+      const lateCount = Object.values(tempAttendance).filter(v => v === 'Late').length;
+      const excusedCount = Object.values(tempAttendance).filter(v => v === 'Excused').length;
+
+      const filteredMembers = activeMembers.filter(member => {
+         const matchesSearch = member.name.toLowerCase().includes(searchMember.toLowerCase()) || member.id.toLowerCase().includes(searchMember.toLowerCase());
+         const matchesFilter = filterStatus === 'all' || tempAttendance[member.id] === filterStatus;
+         return matchesSearch && matchesFilter;
+      });
+
+      return (
+         <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+               <div><h2 style={{ fontSize: '20px', margin: 0 }}>{meeting.title}</h2><p style={{ color: 'var(--att-gray-500)', fontSize: '13px', margin: '4px 0 0 0' }}>{formatDate(meeting.date)} | {meeting.time} | {meeting.venue}</p></div>
+               <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="att-btn att-btn-outline att-btn-sm" onClick={() => setCurrentPage('take-attendance')}>← Back</button>
+                  {!meeting.submitted && <button className="att-btn att-btn-success att-btn-sm" onClick={saveAttendance}>💾 Save</button>}
+                  {!meeting.submitted && <button className="att-btn att-btn-primary att-btn-sm" onClick={submitAttendance}>📤 Submit to Chairman</button>}
+               </div>
+            </div>
+            <div className="att-stats-grid" style={{ marginBottom: '20px' }}>
+               <div className="att-stat-card"><div className="att-stat-icon att-green">✅</div><div className="att-stat-info"><h4>{presentCount}</h4><p>Present</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-red">❌</div><div className="att-stat-info"><h4>{absentCount}</h4><p>Absent</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-orange">⏰</div><div className="att-stat-info"><h4>{lateCount}</h4><p>Late</p></div></div>
+               <div className="att-stat-card"><div className="att-stat-icon att-blue">📝</div><div className="att-stat-info"><h4>{excusedCount}</h4><p>Excused</p></div></div>
+            </div>
+            <div className="att-search-bar">
+               <div className="att-search-input-wrapper">
+                  <input type="text" placeholder="Search by name, ID, or phone..." value={searchMember} onChange={e => setSearchMember(e.target.value)} />
+               </div>
+               <div className="att-filter-group">
+                  {['all', 'Present', 'Absent', 'Late', 'Excused'].map(status => (
+                     <button key={status} className={`att-filter-chip ${filterStatus === status ? 'active' : ''}`} onClick={() => setFilterStatus(status)}>
+                        {status === 'all' ? 'All' : status}
+                     </button>
+                  ))}
+               </div>
+            </div>
+            <div className="att-member-grid">
+               {filteredMembers.map(member => {
+                  const status = tempAttendance[member.id] || '';
+                  const initials = member.name.split(' ').map(n => n[0]).join('');
+                  return (
+                     <div key={member.id} className="att-member-card">
+                        <div className="att-member-card-header">
+                           <div className="att-member-photo-placeholder">{initials}</div>
+                           <div className="att-member-details"><h4>{member.name}</h4><p>{member.id} • {member.phone}</p></div>
+                        </div>
+                        <div className="att-member-card-body">
+                           <div className="att-member-meta">
+                              <span className="att-member-meta-item">👤 {member.status}</span>
+                              <span className="att-member-meta-item">📅 Joined: {member.joinDate}</span>
+                           </div>
+                           <div className="att-attendance-options">
+                              {['Present', 'Absent', 'Late', 'Excused', 'Online Attendance'].map(s => (
+                                 <button key={s} className={`att-attendance-btn ${status === s ? `att-selected-${s.toLowerCase().replace(' ', '-')}` : ''}`} onClick={() => markAttendance(member.id, s)}>
+                                    {s === 'Present' ? '✅' : s === 'Absent' ? '❌' : s === 'Late' ? '⏰' : s === 'Excused' ? '📝' : '💻'} {s === 'Online Attendance' ? 'Online' : s}
+                                 </button>
+                              ))}
+                           </div>
+                           <div className="att-form-grid" style={{ marginTop: '8px', gridTemplateColumns: '1fr 1fr' }}>
+                              <div className="att-form-group"><label style={{ fontSize: '11px' }}>Arrival Time</label><input type="time" className="att-form-control" style={{ padding: '6px 10px', fontSize: '12px' }} /></div>
+                              <div className="att-form-group"><label style={{ fontSize: '11px' }}>Meeting Role</label><select className="att-form-control" style={{ padding: '6px 10px', fontSize: '12px' }}><option>Member</option><option>Executive</option><option>Guest</option></select></div>
+                           </div>
+                           <div className="att-form-group"><label style={{ fontSize: '11px' }}>Remarks</label><input type="text" className="att-form-control" style={{ padding: '6px 10px', fontSize: '12px' }} placeholder="Optional notes..." /></div>
+                        </div>
+                     </div>
+                  );
+               })}
+            </div>
+         </div>
+      );
+   };
+
+   const renderChairmanApproval = () => {
+      const pendingMeetings = store.meetings.filter(m => m.submitted && !m.approved && !m.returned);
+      const returnedMeetings = store.meetings.filter(m => m.returned);
+      const approvedMeetings = store.meetings.filter(m => m.approved);
+
+      return (
+         <div>
+            <div className="att-tabs">
+               <button className={`att-tab ${chairmanTab === 'pending' ? 'active' : ''}`} onClick={() => setChairmanTab('pending')}>Pending ({pendingMeetings.length})</button>
+               <button className={`att-tab ${chairmanTab === 'returned' ? 'active' : ''}`} onClick={() => setChairmanTab('returned')}>Returned ({returnedMeetings.length})</button>
+               <button className={`att-tab ${chairmanTab === 'approved' ? 'active' : ''}`} onClick={() => setChairmanTab('approved')}>Approved ({approvedMeetings.length})</button>
+            </div>
+            {chairmanTab === 'pending' && (
+               <div>
+                  {pendingMeetings.length === 0 ? (
+                     <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>✅</div><h4>No Pending Approvals</h4><p>All attendance records have been reviewed. Great job!</p></div>
+                  ) : pendingMeetings.map(m => {
+                     const totalActive = getActiveMembers().length;
+                     const present = Object.values(m.attendance).filter(v => v === 'Present' || v === 'Late' || v === 'Online Attendance').length;
+                     const absent = Object.values(m.attendance).filter(v => v === 'Absent').length;
+                     const late = Object.values(m.attendance).filter(v => v === 'Late').length;
+                     return (
+                        <div key={m.id} className="att-card" style={{ marginBottom: '16px' }}>
+                           <div className="att-card-header"><h3>{m.title}</h3>{getStatusBadge('Pending Applicant')}</div>
+                           <div className="att-card-body">
+                              <div className="att-grid-4" style={{ marginBottom: '20px' }}>
+                                 <div className="att-stat-card"><div className="att-stat-info"><h4>{totalActive}</h4><p>Total Active Members</p></div></div>
+                                 <div className="att-stat-card"><div className="att-stat-icon att-green">✅</div><div className="att-stat-info"><h4>{present}</h4><p>Present</p></div></div>
+                                 <div className="att-stat-card"><div className="att-stat-icon att-red">❌</div><div className="att-stat-info"><h4>{absent}</h4><p>Absent</p></div></div>
+                                 <div className="att-stat-card"><div className="att-stat-icon att-orange">⏰</div><div className="att-stat-info"><h4>{late}</h4><p>Late</p></div></div>
+                              </div>
+                              <p><strong>Meeting Date:</strong> {formatDate(m.date)} | <strong>Time:</strong> {m.time} | <strong>Venue:</strong> {m.venue}</p>
+                              <div style={{ marginTop: '16px' }}>
+                                 <table className="att-data-table">
+                                    <thead><tr><th>Member ID</th><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                       {getActiveMembers().map(member => (
+                                          <tr key={member.id}><td>{member.id}</td><td>{member.name}</td><td>{member.phone}</td><td>{getStatusBadge(m.attendance[member.id] || 'Not Marked')}</td></tr>
+                                       ))}
+                                    </tbody>
+                                 </table>
+                              </div>
+                              <div style={{ marginTop: '20px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                                 <button className="att-btn att-btn-success" onClick={() => approveAttendance(m.id)}>✅ Approve</button>
+                                 <button className="att-btn att-btn-warning" onClick={() => returnAttendance(m.id)}>📝 Return for Correction</button>
+                                 <button className="att-btn att-btn-danger" onClick={() => rejectAttendance(m.id)}>❌ Reject</button>
+                              </div>
+                           </div>
+                        </div>
+                     );
+                  })}
+               </div>
+            )}
+            {chairmanTab === 'returned' && (
+               <div>
+                  {returnedMeetings.length === 0 ? (
+                     <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>📝</div><h4>No Returned Records</h4><p>No attendance records have been returned for correction.</p></div>
+                  ) : returnedMeetings.map(m => (
+                     <div key={m.id} className="att-card" style={{ marginBottom: '16px' }}>
+                        <div className="att-card-header"><h3>{m.title}</h3>{getStatusBadge(m.status)}</div>
+                        <div className="att-card-body">
+                           <div className="att-danger-box"><p><strong>Return Reason:</strong> {m.returnReason}</p></div>
+                           <p><strong>Meeting Date:</strong> {formatDate(m.date)} | <strong>Attendance Officer:</strong> {m.createdBy}</p>
+                           <div style={{ marginTop: '16px' }}>
+                              <table className="att-data-table">
+                                 <thead><tr><th>Member ID</th><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                                 <tbody>
+                                    {getActiveMembers().map(member => (
+                                       <tr key={member.id}><td>{member.id}</td><td>{member.name}</td><td>{member.phone}</td><td>{getStatusBadge(m.attendance[member.id] || 'Not Marked')}</td></tr>
+                                    ))}
+                                 </tbody>
+                              </table>
+                           </div>
+                        </div>
+                     </div>
+                  ))}
+               </div>
+            )}
+            {chairmanTab === 'approved' && (
+               <div>
+                  {approvedMeetings.length === 0 ? (
+                     <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>🔒</div><h4>No Approved Records</h4><p>No attendance records have been approved yet.</p></div>
+                  ) : approvedMeetings.map(m => {
+                     const present = Object.values(m.attendance).filter(v => v === 'Present' || v === 'Late' || v === 'Online Attendance').length;
+                     const absent = Object.values(m.attendance).filter(v => v === 'Absent').length;
+                     return (
+                        <div key={m.id} className="att-card" style={{ marginBottom: '16px' }}>
+                           <div className="att-card-header"><h3>{m.title}</h3>{getStatusBadge('Approved Official Attendance Record')}</div>
+                           <div className="att-card-body">
+                              <div className="att-success-box"><p><strong>Approved by:</strong> {m.approvedBy} on {formatDate(m.approvedDate)}</p></div>
+                              <p><strong>Meeting Date:</strong> {formatDate(m.date)} | <strong>Present:</strong> {present} | <strong>Absent:</strong> {absent}</p>
+                              <div style={{ marginTop: '16px' }}>
+                                 <table className="att-data-table">
+                                    <thead><tr><th>Member ID</th><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                       {getActiveMembers().map(member => (
+                                          <tr key={member.id}><td>{member.id}</td><td>{member.name}</td><td>{member.phone}</td><td>{getStatusBadge(m.attendance[member.id] || 'Not Marked')}</td></tr>
+                                       ))}
+                                    </tbody>
+                                 </table>
+                              </div>
+                           </div>
+                        </div>
+                     );
+                  })}
+               </div>
+            )}
+         </div>
+      );
+   };
+
+   const renderAttendanceRegister = () => {
+      const approvedMeetings = store.meetings.filter(m => m.approved);
+      if (approvedMeetings.length === 0) {
+         return (
+            <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>🔒</div><h4>No Official Records</h4><p>Approved attendance records will appear here once the Chairman approves them.</p></div>
+         );
+      }
+      return (
+         <div className="att-card">
+            <div className="att-card-header"><h3>Official Meeting Attendance Register</h3></div>
+            <div className="att-card-body">
+               <div className="att-info-box"><p><strong>Locked Records:</strong> These attendance records have been approved by the Chairman and cannot be edited. They serve as the official attendance register of MARCAIN Cooperative.</p></div>
+               <div className="att-table-container">
+                  <table className="att-data-table">
+                     <thead><tr><th>Meeting</th><th>Date & Time</th><th>Venue</th><th>Approved By</th><th>Date Approved</th><th>Action</th></tr></thead>
+                     <tbody>
+                        {approvedMeetings.map(m => (
+                           <tr key={m.id}>
+                              <td><strong>{m.title}</strong><br /><small>{m.type}</small></td>
+                              <td>{formatDate(m.date)}<br /><small>{m.time}</small></td>
+                              <td>{m.venue}</td>
+                              <td>{getStatusBadge(m.approvedBy)}</td>
+                              <td>{formatDate(m.approvedDate)}</td>
+                              <td><button className="att-btn att-btn-primary att-btn-sm" onClick={() => viewRegister(m.id)}>View Register</button></td>
+                           </tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+         </div>
+      );
+   };
+
+   const renderReports = () => {
+      const reports = [
+         { icon: '📄', title: 'Attendance Per Meeting', desc: 'View detailed attendance breakdown for each meeting.', color: 'att-blue' },
+         { icon: '👤', title: 'Attendance History Per Member', desc: 'Track individual member attendance across all meetings.', color: 'att-green' },
+         { icon: '🚫', title: 'Frequently Absent Members', desc: 'Identify members with repeated absences.', color: 'att-red' },
+         { icon: '⏰', title: 'Frequently Late Members', desc: 'Identify members with repeated late arrivals.', color: 'att-orange' },
+         { icon: '⚠️', title: 'Members Eligible for Penalties', desc: 'Generate list of members meeting penalty criteria.', color: 'att-red' },
+         { icon: '📝', title: 'Members with Excused Absence', desc: 'View all members with excused absences.', color: 'att-blue' },
+         { icon: '💼', title: 'Executive Attendance Record', desc: 'Track attendance of executive committee members.', color: 'att-green' },
+         { icon: '📅', title: 'Monthly Attendance Summary', desc: 'Generate monthly attendance statistics and trends.', color: 'att-blue' },
+         { icon: '📊', title: 'Annual Attendance Summary', desc: 'Generate yearly attendance overview and analytics.', color: 'att-green' }
+      ];
+      return (
+         <div>
+            <div className="att-section-title">📈 Attendance Reports</div>
+            <div className="att-grid-2">
+               {reports.map((r, i) => (
+                  <div key={i} className="att-report-card" onClick={() => showToast(`Report generated: ${r.title}`, 'info')}>
+                     <div className={`att-report-icon ${r.color}`}>{r.icon}</div>
+                     <h4>{r.title}</h4>
+                     <p>{r.desc}</p>
+                  </div>
+               ))}
+            </div>
+         </div>
+      );
+   };
+
+   const renderPenalties = () => {
+      const pending = store.penalties.filter(p => p.status === 'Pending Confirmation');
+      const confirmed = store.penalties.filter(p => p.status === 'Confirmed');
+      return (
+         <div>
+            <div className="att-tabs">
+               <button className={`att-tab ${penaltyTab === 'pending' ? 'active' : ''}`} onClick={() => setPenaltyTab('pending')}>Pending Confirmation ({pending.length})</button>
+               <button className={`att-tab ${penaltyTab === 'confirmed' ? 'active' : ''}`} onClick={() => setPenaltyTab('confirmed')}>Confirmed ({confirmed.length})</button>
+            </div>
+            {penaltyTab === 'pending' && (
+               <div>
+                  {pending.length === 0 ? (
+                     <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>✅</div><h4>No Pending Penalties</h4><p>All penalties have been reviewed and confirmed.</p></div>
+                  ) : pending.map(p => (
+                     <div key={p.memberId} className={`att-penalty-item ${p.meetings >= 5 ? 'att-severe' : ''}`}>
+                        <div className="att-penalty-info"><h5>{p.memberName} ({p.memberId})</h5><p>{p.type} | {p.meetings} meetings | Amount: NGN {p.amount.toLocaleString()} | Date: {formatDate(p.date)}</p></div>
+                        <div>
+                           <button className="att-btn att-btn-success att-btn-sm" onClick={() => confirmPenalty(p.memberId)}>✅ Confirm</button>
+                           <button className="att-btn att-btn-outline att-btn-sm" style={{ marginLeft: '8px' }} onClick={() => waivePenalty(p.memberId)}>📝 Waive</button>
+                        </div>
+                     </div>
+                  ))}
+               </div>
+            )}
+            {penaltyTab === 'confirmed' && (
+               <div>
+                  {confirmed.length === 0 ? (
+                     <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>🔒</div><h4>No Confirmed Penalties</h4><p>No penalties have been confirmed yet.</p></div>
+                  ) : confirmed.map(p => (
+                     <div key={p.memberId} className="att-penalty-item att-severe">
+                        <div className="att-penalty-info"><h5>{p.memberName} ({p.memberId})</h5><p>{p.type} | {p.meetings} meetings | Amount: NGN {p.amount.toLocaleString()} | Date: {formatDate(p.date)}</p></div>
+                        {getStatusBadge('Present')}
+                     </div>
+                  ))}
+               </div>
+            )}
+         </div>
+      );
+   };
+
+   const renderAuditTrail = () => (
+      <div className="att-card">
+         <div className="att-card-header"><h3>Complete Audit Trail</h3></div>
+         <div className="att-card-body">
+            <div className="att-audit-timeline">
+               {store.auditTrail.map((item, i) => (
+                  <div key={i} className={`att-audit-item att-${item.type}`}>
+                     <div className="att-audit-header"><span className="att-audit-action">{item.action}</span><span className="att-audit-time">{item.time}</span></div>
+                     <div className="att-audit-user">by {item.user}</div>
+                     <div className="att-audit-detail">{item.detail}</div>
+                  </div>
+               ))}
+            </div>
+         </div>
+      </div>
+   );
+
+   const renderMembers = () => {
+      const filtered = store.members.filter(m => m.name.toLowerCase().includes(membersSearch.toLowerCase()) || m.id.toLowerCase().includes(membersSearch.toLowerCase()));
+      return (
+         <div className="att-card">
+            <div className="att-card-header"><h3>Approved Members Database</h3></div>
+            <div className="att-card-body">
+               <div className="att-info-box"><p><strong>Eligibility Rule:</strong> Only members with "Active Member" status appear on meeting attendance lists. Members who are Suspended, Withdrawn, Terminated, Deceased, or Pending Applicants are excluded.</p></div>
+               <div className="att-search-bar">
+                  <div className="att-search-input-wrapper">
+                     <input type="text" placeholder="Search members..." value={membersSearch} onChange={e => setMembersSearch(e.target.value)} />
+                  </div>
+               </div>
+               <div className="att-table-container">
+                  <table className="att-data-table">
+                     <thead><tr><th>Name</th><th>Member ID</th><th>Phone</th><th>Status</th><th>Join Date</th></tr></thead>
+                     <tbody>
+                        {filtered.map(m => {
+                           const initials = m.name.split(' ').map(n => n[0]).join('');
+                           return (
+                              <tr key={m.id}>
+                                 <td><div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><div className="att-member-photo-placeholder" style={{ width: '36px', height: '36px', fontSize: '14px' }}>{initials}</div><span>{m.name}</span></div></td>
+                                 <td>{m.id}</td>
+                                 <td>{m.phone}</td>
+                                 <td>{getStatusBadge(m.status)}</td>
+                                 <td>{m.joinDate}</td>
+                              </tr>
+                           );
+                        })}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+         </div>
+      );
+   };
+
+   const renderNotifications = () => (
+      <div className="att-card">
+         <div className="att-card-header"><h3>Notifications</h3></div>
+         <div className="att-card-body">
+            {store.notifications.length === 0 ? (
+               <div className="att-empty-state"><div style={{ fontSize: '60px', marginBottom: '16px' }}>📭</div><h4>No Notifications</h4><p>You have no notifications at this time.</p></div>
+            ) : store.notifications.map((n, i) => {
+               const iconMap = { submit: '📤', reminder: '⏰', approve: '✅', penalty: '⚠️' };
+               const colorMap = { submit: 'var(--att-info-light)', reminder: 'var(--att-warning-light)', approve: 'var(--att-success-light)', penalty: 'var(--att-danger-light)' };
+               return (
+                  <div key={i} className={`att-notification-item ${!n.read ? 'att-unread' : ''}`}>
+                     <div className="att-notification-icon" style={{ background: colorMap[n.type] }}>{iconMap[n.type]}</div>
+                     <div style={{ flex: 1 }}>
+                        <div className="att-notification-content"><h5>{n.title}</h5><p>{n.message}</p></div>
+                     </div>
+                     <span className="att-notification-time">{n.time}</span>
+                  </div>
+               );
+            })}
+         </div>
+      </div>
+   );
+
+   const renderContent = () => {
+      switch (currentPage) {
+         case 'dashboard': return renderDashboard();
+         case 'create-meeting': return renderCreateMeeting();
+         case 'take-attendance': return renderTakeAttendance();
+         case 'attendance-detail': return renderAttendanceDetail();
+         case 'chairman-approval': return renderChairmanApproval();
+         case 'attendance-register': return renderAttendanceRegister();
+         case 'reports': return renderReports();
+         case 'penalties': return renderPenalties();
+         case 'audit-trail': return renderAuditTrail();
+         case 'members': return renderMembers();
+         case 'notifications': return renderNotifications();
+         default: return renderDashboard();
+      }
+   };
+
+   const pageTitles = {
+      dashboard: { title: 'Dashboard', subtitle: 'Overview of attendance activities' },
+      'create-meeting': { title: 'Create Meeting Attendance', subtitle: 'Set up a new meeting and generate attendance list' },
+      'take-attendance': { title: 'Take Attendance', subtitle: 'Mark member attendance for meetings' },
+      'attendance-detail': { title: 'Take Attendance', subtitle: 'Mark member attendance for meetings' },
+      'chairman-approval': { title: 'Chairman Attendance Approval', subtitle: 'Review and approve submitted attendance records' },
+      'attendance-register': { title: 'Official Meeting Attendance Register', subtitle: 'View locked and approved attendance records' },
+      reports: { title: 'Attendance Reports', subtitle: 'Generate and view attendance analytics' },
+      penalties: { title: 'Penalty Management', subtitle: 'Review and confirm member penalties' },
+      'audit-trail': { title: 'Audit Trail', subtitle: 'Complete history of all attendance actions' },
+      members: { title: 'Approved Members Database', subtitle: 'View and manage cooperative members' },
+      notifications: { title: 'Notifications', subtitle: 'System alerts and member notifications' }
+   };
+
+   return (
+      <div className="attendance-portal">
+         {/* Toast Container */}
+         <div className="att-toast-container">
+            {toastMessages.map(t => (
+               <div key={t.id} className={`att-toast att-${t.type}`}>
+                  <span>{t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : t.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                  <span>{t.message}</span>
+               </div>
+            ))}
+         </div>
+
+         {/* Return Modal */}
+         {showReturnModal && (
+            <div className="att-modal-overlay active">
+               <div className="att-modal">
+                  <div className="att-modal-header"><h3>Return for Correction</h3><button className="att-modal-close" onClick={() => setShowReturnModal(false)}>×</button></div>
+                  <div className="att-modal-body">
+                     <p>Please provide a reason for returning this attendance record:</p>
+                     <textarea className="att-form-control" rows="4" value={returnReason} onChange={e => setReturnReason(e.target.value)} placeholder="Enter reason..." style={{ marginTop: '12px' }} />
+                  </div>
+                  <div className="att-modal-footer">
+                     <button className="att-btn att-btn-outline" onClick={() => setShowReturnModal(false)}>Cancel</button>
+                     <button className="att-btn att-btn-warning" onClick={confirmReturn}>Return Record</button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* View Register Modal */}
+         {modalOpen && (
+            <div className="att-modal-overlay active" onClick={() => setModalOpen(false)}>
+               <div className="att-modal" onClick={e => e.stopPropagation()}>
+                  <div className="att-modal-header"><h3>{modalTitle}</h3><button className="att-modal-close" onClick={() => setModalOpen(false)}>×</button></div>
+                  <div className="att-modal-body">{modalBody}</div>
+                  <div className="att-modal-footer"><button className="att-btn att-btn-outline" onClick={() => setModalOpen(false)}>Close</button></div>
+               </div>
+            </div>
+         )}
+
+         <div className="att-app-container">
+            {/* Sidebar */}
+            <aside className={`att-sidebar ${sidebarOpen ? 'att-open' : ''}`}>
+               <div className="att-sidebar-header">
+                  <div className="att-logo">
+                     <div className="att-logo-icon">MC</div>
+                     <div className="att-logo-text"><h1>Marcain Coop</h1><span>Attendance System</span></div>
+                  </div>
+               </div>
+               <div className="att-user-profile">
+                  <div className="att-user-avatar">{store.currentUser.initials}</div>
+                  <div className="att-user-info"><h4>{store.currentUser.name}</h4><span className="att-role-badge">{store.currentUser.role}</span></div>
+               </div>
+               <nav className="att-nav-menu">
+                  {navItems.map((section, si) => (
+                     <div key={si} className="att-nav-section">
+                        <div className="att-nav-section-title">{section.section}</div>
+                        {section.items.map(item => (
+                           <div key={item.page} className={`att-nav-item ${currentPage === item.page ? 'active' : ''}`} onClick={() => { setCurrentPage(item.page); setSidebarOpen(false); }}>
+                              <span style={{ marginRight: '12px' }}>{item.icon}</span>{item.label}
+                           </div>
+                        ))}
+                     </div>
+                  ))}
+               </nav>
+               <div className="att-sidebar-footer">MARCAIN Cooperative<br />Attendance Management System v1.0</div>
+            </aside>
+
+            {/* Mobile overlay */}
+            {sidebarOpen && <div className="att-mobile-overlay" onClick={() => setSidebarOpen(false)}></div>}
+
+            {/* Main Content */}
+            <main className="att-main-content">
+               <header className="att-top-bar">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                     <button className="att-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ display: 'none' }}>
+                        <span></span><span></span><span></span>
+                     </button>
+                     <div className="att-page-title">
+                        <h2>{pageTitles[currentPage]?.title || 'Dashboard'}</h2>
+                        <p>{pageTitles[currentPage]?.subtitle || ''}</p>
+                     </div>
+                  </div>
+                  <div className="att-top-actions">
+                     <button className="att-notification-btn" onClick={() => setCurrentPage('notifications')}>
+                        🔔<span className="att-notification-badge">{store.notifications.filter(n => !n.read).length}</span>
+                     </button>
+                  </div>
+               </header>
+               <div className="att-content-area">{renderContent()}</div>
+            </main>
+         </div>
+      </div>
+   );
+}
+
 
 // ==================== FOOTER ====================
 function Footer({ setPage }) {
@@ -1476,17 +2880,21 @@ function App() {
          case 'gallery': return <GalleryPage />;
          case 'contact': return <ContactPage />;
          case 'portal': return <PortalPage />;
+         case 'attendance': return <AttendancePortal />;
          default: return <HomePage setPage={setPage} />;
       }
    };
 
+   // Don't show navbar/footer on attendance portal for full-screen experience
+   const isAttendance = currentPage === 'attendance';
+
    return (
       <div className="app">
-         <Navbar currentPage={currentPage} setPage={setPage} />
-         <main className="main-content">
+         {!isAttendance && <Navbar currentPage={currentPage} setPage={setPage} />}
+         <main className={`main-content ${isAttendance ? 'attendance-mode' : ''}`}>
             {renderPage()}
          </main>
-         <Footer setPage={setPage} />
+         {!isAttendance && <Footer setPage={setPage} />}
       </div>
    );
 }
